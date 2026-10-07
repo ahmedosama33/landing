@@ -1,0 +1,16 @@
+[
+  {
+    "_id": {
+      "$oid": "700000000000000000000001"
+    },
+    "fullName": "Ahmed osama",
+    "phone": "+1270627474",
+    "email": "ahmedosamaelfouly@gmail.com",
+    "createdAt": {
+      "$date": "2026-10-07T12:00:00.000Z"
+    },
+    "updatedAt": {
+      "$date": "2026-10-07T12:00:00.000Z"
+    }
+  }
+]

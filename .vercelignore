@@ -1,0 +1,5 @@
+.git
+.env
+.env.*
+*.local
+self_client*.json

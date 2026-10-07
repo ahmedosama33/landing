@@ -1,0 +1,38 @@
+[
+  {
+    "_id": {
+      "$oid": "700000000000000000000003"
+    },
+    "provider": "botspace",
+    "displayName": "Royal Model",
+    "channelId": "6ac529a17669b2ff0c3bd3d2",
+    "status": "not_verified",
+    "credentialEnvVar": "BOTSPACE_API_KEY",
+    "autoSend": false,
+    "createdAt": {
+      "$date": "2026-10-07T12:00:00.000Z"
+    },
+    "updatedAt": {
+      "$date": "2026-10-07T12:00:00.000Z"
+    }
+  },
+  {
+    "_id": {
+      "$oid": "700000000000000000000004"
+    },
+    "provider": "zoho",
+    "module": "Leads",
+    "status": "not_verified",
+    "credentialEnvVars": [
+      "ZOHO_CLIENT_ID",
+      "ZOHO_CLIENT_SECRET",
+      "ZOHO_REFRESH_TOKEN"
+    ],
+    "createdAt": {
+      "$date": "2026-10-07T12:00:00.000Z"
+    },
+    "updatedAt": {
+      "$date": "2026-10-07T12:00:00.000Z"
+    }
+  }
+]
