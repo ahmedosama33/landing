@@ -54,6 +54,6 @@ export function validateEnquiry(payload) {
 
 export function buildWhatsAppUrl(number, enquiry) {
   if (!/^[1-9]\d{7,14}$/.test(number) || !enquiry) return null;
-  const message = `Hello Royal Model Modern Clinic,\n\nI just submitted an enquiry through your website.\n\nName: ${enquiry.fullName}\nService: ${enquiry.service}\n\nI'd like to continue my enquiry on WhatsApp.`;
+  const message = `Hello Royal Model Modern Clinic,\n\nI would like to request a booking.\n\nName: ${enquiry.fullName}\nEmail: ${enquiry.email || 'Not provided'}\nPhone: ${enquiry.phone || 'Not provided'}\nService: ${enquiry.service}\n\nPlease let me know the available appointments.`;
   return `https://wa.me/${number}?text=${encodeURIComponent(message)}`;
 }

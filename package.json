@@ -11,6 +11,7 @@
     "preview": "vite preview",
     "dev:api": "node --env-file=.env --watch server/dev.js",
     "db:setup": "node --env-file=.env server/setup.js",
+    "zoho:test": "node --env-file=.env server/testZoho.js",
     "zoho:retry": "node --env-file=.env server/retry.js"
   },
   "dependencies": {

@@ -13,6 +13,8 @@ const schema = new mongoose.Schema({
   consent: { type: Boolean, required: true, validate: value => value === true },
   utmSource: text(255), utmMedium: text(255), utmCampaign: text(255),
   utmContent: text(255), utmTerm: text(255), landingPage: text(2000), referrer: text(2000),
+  // New records track Flow receipt, not CRM completion. Legacy synced rows and
+  // lead IDs keep their old meaning; no automatic replay or destructive migration.
   zohoSyncStatus: { type: String, enum: ['pending', 'syncing', 'synced', 'failed'], default: 'pending' },
   zohoLeadId: String, zohoSyncedAt: Date, zohoSyncError: String, zohoSyncStartedAt: Date,
   whatsappStarted: { type: Boolean, default: false },

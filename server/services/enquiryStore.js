@@ -44,11 +44,11 @@ export const enquiryStore = {
     if (!saved || saved.payloadHash !== payloadHash) throw new ConflictError('Submission key already used.');
     return saved;
   },
-  async claim(id) {
+  async claim(id, { retry = true } = {}) {
     await connectDB();
     return Enquiry.findOneAndUpdate({ _id: id, $or: [
-      { zohoSyncStatus: { $in: ['pending', 'failed'] } },
-      { zohoSyncStatus: 'syncing', zohoSyncStartedAt: { $lt: new Date(Date.now() - 120000) } },
+      { zohoSyncStatus: { $in: retry ? ['pending', 'failed'] : ['pending'] } },
+      ...(retry ? [{ zohoSyncStatus: 'syncing', zohoSyncStartedAt: { $lt: new Date(Date.now() - 120000) } }] : []),
     ] }, { $set: { zohoSyncStatus: 'syncing', zohoSyncStartedAt: new Date(), zohoSyncError: null } }, { returnDocument: 'after' }).lean();
   },
   async update(id, fields) {

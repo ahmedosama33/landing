@@ -26,7 +26,7 @@ function harness(fail = false) {
     async update(id, fields) { Object.assign(row, fields); },
   };
   const zoho = { async sync() { syncs++; if (fail) throw new Error('secret-token and patient data'); return '12345'; } };
-  return { store, zoho, get row() { return row; }, get syncs() { return syncs; } };
+  return { store, zoho, flow: zoho, get row() { return row; }, get syncs() { return syncs; } };
 }
 async function withApi(t, deps) {
   const app = typeof deps === 'function' ? deps : createApp({ ...deps, logger });
@@ -70,7 +70,7 @@ test('Express saves before CRM, persists status and repeated request does not re
   assert.equal(response.status, 201);
   assert.deepEqual(await response.json(), { success: true, enquiryId: h.row._id, message: 'Your enquiry has been received.' });
   assert.equal(h.row.zohoSyncStatus, 'synced');
-  assert.equal(h.row.zohoLeadId, '12345');
+  assert.equal(h.row.zohoLeadId, undefined, 'Flow receipt does not supply a CRM ID');
   assert.ok(h.row.zohoSyncedAt);
   await request();
   assert.equal(h.syncs, 1);
@@ -144,7 +144,10 @@ test('WhatsApp includes only approved fields and requires configured number', ()
   assert.equal(url.origin, 'https://wa.me');
   assert.equal(url.pathname, '/15555550123');
   assert.match(url.searchParams.get('text'), /Name: A & B/);
-  assert.doesNotMatch(url.searchParams.get('text'), /private|db-id|TEST@example/);
+  assert.ok(url.searchParams.get('text').includes(`Email: ${payload.email}`));
+  assert.ok(url.searchParams.get('text').includes(`Phone: ${payload.phone}`));
+  assert.ok(url.searchParams.get('text').includes(`Service: ${payload.service}`));
+  assert.doesNotMatch(url.searchParams.get('text'), /private|db-id/);
   assert.equal(buildWhatsAppUrl('', payload), null);
   assert.equal(buildWhatsAppUrl('15555550123', null), null);
 });
@@ -246,7 +249,7 @@ test('OAuth and record errors sanitized; ambiguous matches not written', async (
   const auth = zohoHarness([json({ error: 'invalid_client', secret: 'private' })]);
   await assert.rejects(auth.client.sync(validateEnquiry(payload)), SyncError);
   const write = zohoHarness([token(), json({ data: [{ status: 'error', code: 'INVALID_DATA', message: 'patient data' }] })]);
-  await assert.rejects(write.client.sync({ ...validateEnquiry(payload), zohoLeadId: '12345' }), error => error.message === 'CRM rejected the lead (INVALID_DATA).');
+  await assert.rejects(write.client.sync({ ...validateEnquiry(payload), zohoLeadId: '12345' }), error => error.message === 'Zoho lead-update failed: HTTP 200 (INVALID_DATA).');
   const ambiguous = zohoHarness([token(), json({ data: [], info: { more_records: true } })]);
   await assert.rejects(ambiguous.client.sync(validateEnquiry(payload)), /ambiguous/);
 });
@@ -278,7 +281,7 @@ test('Zoho accepts .com origins with optional trailing slash and rejects invalid
     assert.throws(() => normalizeZohoBaseUrl(name, undefined), /incomplete/);
     for (const url of ['https://crm.zoho.com/crm/org123', 'https://attacker.example', `${base}/crm/v8`, `${base}?secret=value`, 'http://accounts.zoho.com']) {
       assert.throws(() => normalizeZohoBaseUrl(name, url), error => {
-        assert.match(error.message, /configuration is invalid/);
+        assert.match(error.message, /invalid/);
         assert.doesNotMatch(error.message, /org123|attacker|secret=value/);
         return true;
       });
@@ -328,4 +331,43 @@ test('development logs identify honeypot before save without customer data; prod
     if (mode === 'development') assert.match(logs, /honeypot_filled/);
     else assert.equal(entries.length, 0);
   }
+});
+
+test('refresh exchange sends all credentials as form data and only access token authorizes CRM', async () => {
+  const h = zohoHarness([token(), success()]);
+  await h.client.sync({ ...validateEnquiry(payload), zohoLeadId: '12345' });
+  assert.equal(h.calls[0].headers['Content-Type'], 'application/x-www-form-urlencoded');
+  assert.deepEqual(Object.fromEntries(h.calls[0].body), {
+    grant_type: 'refresh_token', client_id: 'client', client_secret: 'secret', refresh_token: 'refresh',
+  });
+  assert.equal(h.calls[1].headers.Authorization, 'Zoho-oauthtoken private-access-token');
+});
+
+test('validated OAuth api_domain takes precedence and untrusted domains never receive tokens', async () => {
+  const h = zohoHarness([json({ access_token: 'private-access-token', api_domain: 'https://www.zohoapis.com/' }), success()]);
+  await h.client.sync({ ...validateEnquiry(payload), zohoLeadId: '12345' });
+  assert.equal(h.calls[1].url, 'https://www.zohoapis.com/crm/v8/Leads/12345');
+  for (const domain of ['https://attacker.example', 'http://www.zohoapis.com', 'https://www.zohoapis.com/crm/v8']) {
+    const invalid = zohoHarness([json({ access_token: 'private-access-token', api_domain: domain })]);
+    await assert.rejects(invalid.client.getZohoAccessToken(), /Zoho API base URL invalid/);
+    assert.equal(invalid.calls.length, 1);
+  }
+});
+
+test('missing access token fails safely and concurrent refreshes share one request', async () => {
+  const missing = zohoHarness([json({ private: 'secret-response' })]);
+  await assert.rejects(missing.client.getZohoAccessToken(), /no access token returned/);
+  const h = zohoHarness([token()]);
+  assert.deepEqual(await Promise.all([h.client.getZohoAccessToken(), h.client.getZohoAccessToken()]), ['private-access-token', 'private-access-token']);
+  assert.equal(h.calls.length, 1);
+});
+
+test('CRM read helper sends minimal query and search/create errors identify stage without PII', async () => {
+  const read = zohoHarness([token(), new Response(null, { status: 204 })]);
+  await read.client.checkConnection();
+  assert.equal(read.calls[1].url, 'https://www.zohoapis.eu/crm/v8/Leads?fields=id&per_page=1');
+  const search = zohoHarness([token(), json({ code: 'NO_PERMISSION', message: 'private-person' }, 403)]);
+  await assert.rejects(search.client.sync(validateEnquiry(payload)), /Zoho lead-search failed: HTTP 403 \(NO_PERMISSION\)/);
+  const create = zohoHarness([token(), new Response(null, { status: 204 }), new Response(null, { status: 204 }), json({ data: [{ status: 'error', code: 'INVALID_DATA', message: 'private-person' }] })]);
+  await assert.rejects(create.client.sync(validateEnquiry(payload)), /Zoho lead-create failed: HTTP 200 \(INVALID_DATA\)/);
 });

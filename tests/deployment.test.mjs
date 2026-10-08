@@ -63,7 +63,7 @@ test('production permits Vercel same-origin HTTPS and exact configured origin, r
 
 test('public environment example has no credential values and API paths stay outside SPA fallback', () => {
   const example = readFileSync(new URL('../.env.example', import.meta.url), 'utf8');
-  for (const name of ['MONGODB_URI', 'ZOHO_CLIENT_ID', 'ZOHO_CLIENT_SECRET', 'ZOHO_REFRESH_TOKEN', 'BOTSPACE_API_KEY', 'BOTSPACE_WEBHOOK_SECRET']) {
+  for (const name of ['MONGODB_URI', 'ZOHO_FLOW_WEBHOOK_URL', 'ZOHO_CLIENT_ID', 'ZOHO_CLIENT_SECRET', 'ZOHO_REFRESH_TOKEN', 'BOTSPACE_API_KEY', 'BOTSPACE_WEBHOOK_SECRET']) {
     assert.match(example, new RegExp(`^${name}=$`, 'm'), `${name} must be empty in public example`);
   }
   const config = JSON.parse(readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));

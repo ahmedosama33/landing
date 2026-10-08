@@ -2,6 +2,8 @@
 
 Prepared 7 October 2026. No deployment, repository push, Vercel account change, Atlas setup or webhook registration was performed.
 
+Current integration update (8 October 2026): submission and `zoho:retry` now use Zoho Flow. Follow [the current README](../README.md) for acknowledgement, mapping, deduplication, and reconciliation setup. Direct OAuth notes below are historical and apply only to retained legacy helpers.
+
 ## Project settings
 
 | Setting | Value |
@@ -28,11 +30,7 @@ Enter these under Vercel Project Settings -> Environment Variables for Productio
 | Required variable | Visibility / value |
 | --- | --- |
 | `MONGODB_URI` | Server only; Atlas connection string with the chosen database name and encoded credentials |
-| `ZOHO_CLIENT_ID` | Server only; private client configuration |
-| `ZOHO_CLIENT_SECRET` | Server only; secret |
-| `ZOHO_REFRESH_TOKEN` | Server only; valid refresh token for the matching client and organization |
-| `ZOHO_ACCOUNTS_URL` | Server only; `https://accounts.zoho.com` for this .com account |
-| `ZOHO_API_BASE_URL` | Server only; `https://www.zohoapis.com` |
+| `ZOHO_FLOW_WEBHOOK_URL` | Server only; copied from the enabled JSON Flow webhook trigger |
 | `BOTSPACE_API_KEY` | Server only; private API key |
 | `BOTSPACE_CHANNEL_ID` | Server only; `6ac529a17669b2ff0c3bd3d2` (Royal Model) |
 | `BOTSPACE_BASE_URL` | Server only; `https://public-api.bot.space` |

@@ -4,13 +4,13 @@ import { rateLimit } from 'express-rate-limit';
 import { randomUUID } from 'node:crypto';
 import { validateEnquiry, ValidationError } from '../shared/enquiry.js';
 import { enquiryStore, ConflictError } from './services/enquiryStore.js';
-import { createZohoClient, syncEnquiry } from './services/zohoService.js';
+import { createZohoFlowClient, syncFlowEnquiry } from './services/zohoFlowService.js';
 import { createBotspaceClient, syncBotspaceEnquiry } from './services/botspaceService.js';
 import { createBotspaceWebhook } from './services/botspaceWebhook.js';
 import { getAllowedOrigin } from './config/env.js';
 
 const failureMessage = "We couldn't send your enquiry right now. Please try again.";
-export function createApp({ store = enquiryStore, zoho = createZohoClient(name => process.env[name]), botspace = createBotspaceClient(), logger = console, rateLimitMax = 10 } = {}) {
+export function createApp({ store = enquiryStore, flow = createZohoFlowClient(), botspace = createBotspaceClient(), logger = console, rateLimitMax = 10 } = {}) {
   const app = express();
   const debug = (stage, fields = {}) => {
     if (process.env.NODE_ENV === 'development') logger.info?.(`[enquiry] ${stage}`, fields);
@@ -57,11 +57,12 @@ export function createApp({ store = enquiryStore, zoho = createZohoClient(name =
         throw error;
       }
       debug('Mongo save succeeded', { enquiryId: String(saved._id) });
-      let zohoSynced = saved.zohoSyncStatus === 'synced';
-      debug(zohoSynced ? 'Zoho already synced' : 'Zoho sync started');
-      try { zohoSynced = zohoSynced || await syncEnquiry(store, zoho, saved._id, logger); }
-      catch { logger.error('zoho_sync_claim_failed'); }
-      debug(zohoSynced ? 'Zoho sync succeeded' : 'Zoho sync incomplete');
+      // Public replays never retry failed/ambiguous deliveries. Atomic claims
+      // guard concurrent requests; reviewed private recovery handles failures.
+      if (saved.zohoSyncStatus === 'pending') {
+        try { await syncFlowEnquiry(store, flow, saved._id, logger); }
+        catch { logger.error('zoho_flow_sync_claim_failed'); }
+      }
       try { await syncBotspaceEnquiry(store, botspace, saved._id, logger); }
       catch { logger.error('botspace_sync_claim_failed'); }
       return res.status(201).json({ success: true, enquiryId: String(saved._id), message: 'Your enquiry has been received.' });

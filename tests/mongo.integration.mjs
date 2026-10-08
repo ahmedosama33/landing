@@ -5,7 +5,7 @@ import mongoose from 'mongoose';
 import { connectDB } from '../server/config/db.js';
 import Enquiry from '../server/models/Enquiry.js';
 import { enquiryStore, ConflictError } from '../server/services/enquiryStore.js';
-import { syncEnquiry } from '../server/services/zohoService.js';
+import { syncFlowEnquiry as syncEnquiry } from '../server/services/zohoFlowService.js';
 import { validateEnquiry } from '../shared/enquiry.js';
 import { once } from 'node:events';
 import { createApp } from '../server/app.js';
@@ -35,10 +35,10 @@ test('real MongoDB capture, concurrent deduplication, atomic claims and failed-s
     const claims = await Promise.all([enquiryStore.claim(id), enquiryStore.claim(id)]);
     assert.equal(claims.filter(Boolean).length, 1);
     await Enquiry.updateOne({ _id: id }, { $set: { zohoSyncStartedAt: new Date(Date.now() - 180000) } });
-    assert.equal(await syncEnquiry(enquiryStore, { async sync() { return '12345'; } }, id, logger), true);
+    assert.equal(await syncEnquiry(enquiryStore, { async sync() { return '12345'; } }, id, logger, { retry: true }), true);
     const result = await Enquiry.findById(id);
     assert.equal(result.zohoSyncStatus, 'synced');
-    assert.equal(result.zohoLeadId, '12345');
+    assert.equal(result.zohoLeadId, undefined);
     assert.ok(result.createdAt);
     assert.ok(result.zohoSyncedAt);
   } finally {
@@ -55,7 +55,7 @@ test('real HTTP capture persists in MongoDB and returns public success when both
     await connectDB();
     await Enquiry.createIndexes();
     server = createApp({
-      zoho: { async sync() { throw new Error('mock CRM outage'); } },
+      flow: { async sync() { throw new Error('mock CRM outage'); } },
       botspace: { async createContact() { throw new Error('mock BotSpace outage'); } },
       logger: { error() {} },
     }).listen(0, '127.0.0.1');

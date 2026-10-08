@@ -64,7 +64,7 @@ function harness({ fail = false, knownContact } = {}) {
   const zoho = { async sync() { order.push('zoho'); return '12345'; } };
   const botspace = { async createContact() { order.push('botspace'); if (fail) throw new Error('private-key'); return 'contact-123'; } };
   botspace.ensureConversation = async () => ({ id: 'conversation-123' });
-  return { row, order, store, zoho, botspace, logger };
+  return { row, order, store, zoho, flow: zoho, botspace, logger };
 }
 
 async function api(t, deps) {

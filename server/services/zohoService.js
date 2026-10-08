@@ -1,5 +1,6 @@
-import { ZOHO_FIELDS, ZOHO_DEFAULTS, ZOHO_DUPLICATE_FIELDS, whatsappFieldMap, SyncError } from '../config/zoho.js';
-import { getZohoConfig } from '../config/env.js';
+// LEGACY: retained for rollback, zoho:test and explicit metadata helpers only.
+// Not imported by the enquiry route or Flow retry command.
+import { ZOHO_FIELDS, ZOHO_DEFAULTS, ZOHO_DUPLICATE_FIELDS, whatsappFieldMap, SyncError, getZohoConfig, normalizeZohoBaseUrl } from '../config/zoho.js';
 
 export { SyncError, normalizeZohoBaseUrl } from '../config/zoho.js';
 const safeCodes = new Set(['INVALID_DATA', 'MANDATORY_NOT_FOUND', 'DUPLICATE_DATA', 'OAUTH_SCOPE_MISMATCH', 'NO_PERMISSION', 'INVALID_TOKEN', 'AUTHENTICATION_FAILURE', 'INVALID_MODULE', 'LIMIT_EXCEEDED', 'invalid_client', 'invalid_client_secret', 'invalid_code', 'invalid_grant', 'invalid_token']);
@@ -22,21 +23,27 @@ export function mapLead(row, existing = false) {
   return data;
 }
 
-export function createZohoClient(env, fetcher = fetch) {
-  function base(name) {
-    const config = getZohoConfig(env);
-    return name === 'ZOHO_ACCOUNTS_URL' ? config.accountsUrl : config.apiBaseUrl;
+export function createZohoClient(env = name => process.env[name], fetcher = fetch) {
+  let apiDomain;
+  function crmRoot() {
+    const module = env('ZOHO_LEADS_MODULE') || 'Leads';
+    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(module)) throw new SyncError('CRM module configuration is invalid.');
+    return `${apiDomain || getZohoConfig(env).apiBaseUrl}/crm/v8/${module}`;
   }
   async function request(url, init, stage) {
     let response;
     try { response = await fetcher(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(5000) }); }
-    catch { throw new SyncError(`CRM ${stage} request failed or timed out.`); }
+    catch { throw new SyncError(`Zoho ${stage} request failed or timed out.`); }
     if (response.status === 204 && response.ok) return null;
     let body;
-    try { body = await response.json(); } catch { throw new SyncError(`CRM ${stage} returned an invalid response.`); }
-    if (!response.ok || body.error || body.code) {
-      const code = safeCodes.has(body.code) ? ` (${body.code})` : safeCodes.has(body.error) ? ` (${body.error})` : '';
-      throw new SyncError(`CRM ${stage} failed: HTTP ${response.status}${code}.`);
+    try { body = await response.json(); } catch { throw new SyncError(`Zoho ${stage} returned an invalid response.`); }
+    if (!response.ok || !body || body?.error || body?.code) {
+      const code = safeCodes.has(body?.code) ? ` (${body?.code})` : safeCodes.has(body?.error) ? ` (${body?.error})` : '';
+      throw new SyncError(`Zoho ${stage} failed: HTTP ${response.status}${code}.`);
+    }
+    if (body.data?.[0]?.status === 'error') {
+      const code = safeCodes.has(body.data[0].code) ? ` (${body.data[0].code})` : '';
+      throw new SyncError(`Zoho ${stage} failed: HTTP ${response.status}${code}.`);
     }
     return body;
   }
@@ -46,22 +53,32 @@ export function createZohoClient(env, fetcher = fetch) {
   async function refreshToken() {
     // Validate all server settings before transmitting credentials to OAuth.
     const config = getZohoConfig(env);
-    const body = await request(`${base('ZOHO_ACCOUNTS_URL')}/oauth/v2/token`, {
+    const body = await request(`${config.accountsUrl}/oauth/v2/token`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ grant_type: 'refresh_token', client_id: config.clientId, client_secret: config.clientSecret, refresh_token: config.refreshToken }),
-    }, 'authentication');
-    if (!body?.access_token) throw new SyncError('CRM authentication did not return an access token.');
+    }, 'token-refresh');
+    if (typeof body?.access_token !== 'string' || !body.access_token.trim()) throw new SyncError('Zoho token-refresh failed: no access token returned.');
+    apiDomain = body.api_domain === undefined ? config.apiBaseUrl : normalizeZohoBaseUrl('ZOHO_API_BASE_URL', body.api_domain);
     cachedToken = body.access_token;
     expiresAt = Date.now() + Math.max(0, (Number(body.expires_in) || 3600) - 60) * 1000;
     return cachedToken;
   }
   async function getZohoAccessToken() {
+    // Cached access must not bypass missing or invalid runtime configuration.
+    getZohoConfig(env);
     if (cachedToken && Date.now() < expiresAt) return cachedToken;
     tokenPromise ??= refreshToken().finally(() => { tokenPromise = undefined; });
     return tokenPromise;
   }
   return {
     getZohoAccessToken,
+    async checkConnection() {
+      const token = await getZohoAccessToken();
+      await request(`${crmRoot()}?fields=id&per_page=1`, {
+        headers: { Authorization: `Zoho-oauthtoken ${token}` },
+      }, 'lead-read');
+    },
     async updateWhatsAppMetadata(row) {
       // Updates only an already mapped lead. Never searches, upserts, or creates leads.
       if (!row.zohoLeadId) return false;
@@ -73,10 +90,8 @@ export function createZohoClient(env, fetcher = fetch) {
         data[target] = row[source];
       }
       if (!Object.keys(data).length) return false;
-      const module = env('ZOHO_LEADS_MODULE') || 'Leads';
-      if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(module)) throw new SyncError('CRM module configuration is invalid.');
       const token = await getZohoAccessToken();
-      const result = await request(`${base('ZOHO_API_BASE_URL')}/crm/v8/${module}/${row.zohoLeadId}`, {
+      const result = await request(`${crmRoot()}/${row.zohoLeadId}`, {
         method: 'PUT', headers: { Authorization: `Zoho-oauthtoken ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: [data] }),
       }, 'WhatsApp metadata update');
@@ -85,15 +100,13 @@ export function createZohoClient(env, fetcher = fetch) {
     },
     async sync(row) {
       const accessToken = await getZohoAccessToken();
-      const module = env('ZOHO_LEADS_MODULE') || 'Leads';
-      if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(module)) throw new SyncError('CRM module configuration is invalid.');
-      const root = `${base('ZOHO_API_BASE_URL')}/crm/v8/${module}`;
+      const root = crmRoot();
       const headers = { Authorization: `Zoho-oauthtoken ${accessToken}`, 'Content-Type': 'application/json' };
       let id = row.zohoLeadId;
       if (id && !/^\d+$/.test(id)) throw new SyncError('Stored CRM record ID is invalid.');
       for (const [parameter, value, field] of [['phone', row.phone, ZOHO_FIELDS.phone], ['email', row.email, ZOHO_FIELDS.email]]) {
         if (id || !value || !field) continue;
-        const result = await request(`${root}/search?${new URLSearchParams({ [parameter]: value })}`, { headers }, 'lookup');
+        const result = await request(`${root}/search?${new URLSearchParams({ [parameter]: value })}`, { headers }, 'lead-search');
         if (result && !Array.isArray(result.data)) throw new SyncError('CRM lookup returned an invalid response.');
         const matches = (result?.data ?? []).filter(lead => parameter === 'phone'
           ? [lead[field], lead.Phone].some(phone => String(phone ?? '').replace(/[\s().-]/g, '').replace(/^00/, '+').replace(/^\+/, '') === value.replace(/^\+/, ''))
@@ -107,7 +120,7 @@ export function createZohoClient(env, fetcher = fetch) {
         : { data: [mapLead(row)], duplicate_check_fields: ZOHO_DUPLICATE_FIELDS.filter(Boolean) };
       const result = await request(id ? `${root}/${id}` : `${root}/upsert`, {
         method: id ? 'PUT' : 'POST', headers, body: JSON.stringify(payload),
-      }, 'write');
+      }, id ? 'lead-update' : 'lead-create');
       const record = result?.data?.[0];
       if (record?.status !== 'success' || !/^\d+$/.test(record?.details?.id ?? '')) {
         const code = safeCodes.has(record?.code) ? ` (${record.code})` : '';
