@@ -65,10 +65,10 @@ export function createApp({ store = enquiryStore, flow = createZohoFlowClient(),
         catch { logger.error('zoho_flow_sync_claim_failed'); }
       }
       try {
-        const prepared = await syncBotspaceEnquiry(store, botspace, saved._id, logger);
-        // Only a freshly completed sync may trigger a message; public replays and
-        // historical synced enquiries never start a new template attempt.
-        if (prepared) await sendEnquiryTemplate(store, botspace, saved._id, logger);
+        await syncBotspaceEnquiry(store, botspace, saved._id, logger);
+        // A replay may resume a pending, never-attempted send after sync completed.
+        // The independent atomic template claim excludes prior/ambiguous sends.
+        await sendEnquiryTemplate(store, botspace, saved._id, logger);
       }
       catch { logger.error('botspace_sync_claim_failed'); }
       return res.status(201).json({ success: true, enquiryId: String(saved._id), message: 'Your enquiry has been received.' });

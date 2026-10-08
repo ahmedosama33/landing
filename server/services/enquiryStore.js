@@ -9,11 +9,16 @@ async function contactRegistry() {
 }
 
 export class ConflictError extends Error {}
+export function botspaceTemplateClaimFilter(id) {
+  return { _id: id, consent: true, botspaceSyncStatus: 'synced', botspaceTemplateStatus: 'pending',
+    botspaceContactId: { $type: 'string', $ne: '' }, botspaceConversationId: { $type: 'string', $ne: '' },
+    botspaceLastMessageId: { $in: [null, ''] }, botspaceLastMessageStatus: { $in: [null, ''] } };
+}
 export const enquiryStore = {
   async claimBotspaceTemplate(id, templateId) {
     await connectDB();
     // No stale-claim reset: the provider may have accepted a timed-out request.
-    return Enquiry.findOneAndUpdate({ _id: id, consent: true, botspaceSyncStatus: 'synced', botspaceTemplateStatus: 'pending' },
+    return Enquiry.findOneAndUpdate(botspaceTemplateClaimFilter(id),
       { $set: { botspaceTemplateStatus: 'sending', botspaceTemplateId: templateId, botspaceTemplateStartedAt: new Date() } },
       { returnDocument: 'after' }).lean();
   },
