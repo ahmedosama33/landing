@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "integrations:check": "node --env-file=.env server/checkIntegrations.js",
+    "botspace:test-contact": "node --env-file=.env server/testBotspaceContact.js",
+    "test:mongo": "node --env-file=.env --test tests/mongo.integration.mjs",
     "test": "node --test tests/*.test.mjs",
     "dev": "vite",
     "build": "vite build",

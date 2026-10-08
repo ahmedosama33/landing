@@ -1,5 +1,7 @@
 # Royal Model Modern Clinic
 
+BotSpace update (8 October 2026): see [connection setup and safe contact test](docs/BOTSPACE_CONNECTION.md) for Egyptian number normalization, configured custom-property mapping, durable contact-create deduplication and the permission-gated diagnostic. Existing Zoho Flow delivery is preserved.
+
 ## Current architecture
 
 React form (`src/components/contactform.jsx`) -> same-origin `POST /api/enquiries` -> Vercel export (`api/index.js`) / Express (`server/app.js`) -> validated MongoDB save (`server/services/enquiryStore.js`). After persistence, the backend attempts Zoho Flow delivery and BotSpace preparation independently. Zoho Flow creates/updates the CRM Lead using its own CRM connection.
@@ -46,7 +48,7 @@ Legacy OAuth code remains isolated in `server/services/zohoService.js` and `serv
 ## Zoho Flow setup
 
 1. Create a Flow, choose **Webhook** as its trigger, and choose **JSON**. Copy its generated URL privately.
-2. Configure Advanced settings -> **Enable webhook acknowledgement** for **all requests**, not only the first. Use response header `Content-Type: application/json` and response body `{"accepted":true}`. This application requires HTTP **200** and boolean `accepted: true`; other statuses, empty/malformed bodies, or missing/false acknowledgements are failed delivery outcomes.
+2. Configure Advanced settings -> **Enable webhook acknowledgement** for **all requests**, not only the first. Use response header `Content-Type: application/json` and response body `{"accepted":true}`. The sender accepts any HTTP **2xx** with a JSON object containing boolean `accepted: true`, regardless of whitespace, property order, or response Content-Type. Empty/malformed bodies or missing/false acknowledgements require reconciliation; 2xx alone never proves CRM creation.
 3. Supply the synthetic sample below in Flow's trigger setup, with CRM actions disabled or connected to an isolated test organization. Do not send sample traffic to production as part of automated tests.
 4. Connect Zoho CRM inside Flow. Map generic payload keys to the actual fields and mandatory layout values in your CRM account. Confirm field types, required fields, service/status picklists and consent handling. No custom CRM API field names are assumed by this application.
 5. Implement idempotent CRM processing before enabling production or private retries, as described below. Enable the Flow and verify its acknowledgement contract and actions in an isolated environment.
@@ -90,14 +92,15 @@ Both the delivery ledger and CRM writes need race-safe uniqueness. If a Flow run
 
 Validation, 20 KB JSON limit, consent requirement, honeypot, normalized international phone, bounded text, attribution sanitization, and unknown-field removal remain. The form uses an `Idempotency-Key`; unchanged retries reuse it. MongoDB atomically upserts against the unique submission key and rejects changed data under the same key with HTTP 409. Clients that omit the header receive a new key and cannot deduplicate independent requests.
 
-Existing fields are reused; no schema rename, data migration, or index change is required:
+Existing fields are reused; no schema rename or index change is required. This update adds the `needs_reconciliation` enum value and optional `zohoFlowResponse` subdocument without rewriting existing records:
 
 | Field | New Flow delivery meaning |
 | --- | --- |
-| `zohoSyncStatus` | `pending`, `syncing`, `synced` (acknowledged receipt), or `failed` |
+| `zohoSyncStatus` | `pending`, `syncing`, `synced` (acknowledged receipt), `failed`, or `needs_reconciliation` |
 | `zohoSyncStartedAt` | Time the atomic delivery claim began |
 | `zohoSyncedAt` | Time Flow acknowledgement was recorded |
 | `zohoSyncError` | Fixed safe classification and HTTP status where available |
+| `zohoFlowResponse` | Actual HTTP status, allowlisted media type without parameters, and a short body projection containing only boolean `accepted` or fixed redaction markers |
 | `zohoLeadId` | Retained legacy CRM ID; Flow never invents, clears, or overwrites it |
 
 Historical `synced` rows retain their original direct-CRM meaning and are not replayed. Record the deployment cutover time when interpreting these shared fields. Review old pending/failed rows before delivering through Flow because they may already have CRM effects. No blanket reset of historical statuses is performed.
@@ -107,10 +110,10 @@ Flow uses POST JSON, a five-second timeout, and no redirects or inline automatic
 Private recovery after verifying Flow deduplication:
 
 ```sh
-npm run zoho:retry -- ENQUIRY_OBJECT_ID --idempotent-flow-confirmed
+npm run zoho:retry -- ENQUIRY_OBJECT_ID --idempotent-flow-confirmed --reconciled
 ```
 
-The existing command now delivers to **Flow**, never direct CRM. The explicit flag confirms that the operator has configured and verified retry-safe CRM processing; it does not implement that processing. Claims allow pending/failed records and syncing records older than two minutes. Concurrent claims for one record are atomic. Retries resend the same submission identity and original creation timestamp. Synced records are not eligible.
+The existing command now delivers to **Flow**, never direct CRM. The flags confirm that the operator has checked Flow execution history/CRM existence and configured retry-safe CRM processing; it does not implement that processing. Claims allow pending/failed records and syncing records older than two minutes. Concurrent claims for one record are atomic. Retries resend the same submission identity and original creation timestamp. Synced and `needs_reconciliation` records are not eligible. An operator must first check Flow history by submission key and CRM Lead existence, then explicitly resolve the record privately: record verified receipt without resending if already delivered, or reset to pending only if redelivery is safe. No automatic reset is provided. Legacy acknowledgement errors stored as failed also require this review.
 
 After a timeout, network error, or status-write failure, first reconcile Flow history by submission identity; remote acceptance may already have happened. If MongoDB status writes also fail or the process terminates, inspect pending/stale-syncing records. A Flow-accepted run can fail later inside CRM: use Flow history and its reconciliation tools, since the application has no CRM completion callback. Do not blindly replay those accepted records.
 
@@ -127,4 +130,12 @@ No scheduled worker or public retry endpoint exists. Monitor and reconcile failu
 
 Helmet, origin checks, request limits, and the per-instance IP limiter remain. Configure a Vercel Firewall limit for `/api/enquiries` for cross-instance protection. The 60-second function limit is unchanged. A platform termination or client disconnect after a save can still prevent a response; no application can promise a received HTTP response under those conditions.
 
-The BotSpace webhook remains an acknowledgement-only shell (`processed: false`) pending verified provider event/signature contracts. Do not register it as a working event processor. Form preparation never sends WhatsApp messages; the browser handoff remains unchanged. No live webhook call, CRM write, WhatsApp send, deployment, or secret change is performed by this refactor.
+The BotSpace webhook returns HTTP 503 (`processed: false`) pending verified provider event/signature contracts and durable processing. Do not register it as a working event processor; disable any existing subscription to this placeholder until implementation is complete. Production form submissions can now send the approved template when `BOTSPACE_AUTO_SEND=true`, as authorized by the owner. Preview/development and the contact-only diagnostic never auto-send. See [template setup](docs/BOTSPACE_CONNECTION.md#automatic-template-after-live-submissions).
+
+Run `npm run integrations:check` for read-only local configuration checks, MongoDB index/recent sync metadata inspection, and BotSpace conversation lookups. It never creates records, sends messages, invokes Flow, or sends Meta events. Raw responses, secrets and phone numbers are withheld; dashboard visibility still requires manual verification. There is no write-test flag. `npm run test:mongo` runs the separate persistence suite only when `TEST_MONGODB_URI` names a dedicated test database; otherwise both tests skip. See [the integration audit](INTEGRATION_AUDIT_REPORT.md) for evidence, repairs and external blockers.
+
+### Acknowledgement diagnostics update
+
+Timeouts, transport errors, malformed/empty acknowledgements, HTTP 5xx/3xx, and failures to persist an acknowledgement now use `needs_reconciliation`. Configuration errors and HTTP 4xx use `failed`. Existing documents are not rewritten. Deploy readers/workers that understand the new enum together; old code may reject it. Neither browser replays nor the private retry command claim the new state.
+
+Diagnostics are logged as `zoho_flow_response` and stored in `zohoFlowResponse`. Arbitrary text, JSON properties/values, and header parameters are dropped, not merely truncated, because they can contain customer data or tokens. Recognized media types are preserved; others become `other/redacted`. These diagnostics apply to future attempts only. They cannot recover an older response that was never recorded. See [the acknowledgement fix report](docs/ZOHO_FLOW_ACK_FIX.md).

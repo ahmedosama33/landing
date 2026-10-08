@@ -32,28 +32,51 @@ export function mapFlowPayload(row) {
   payload.createdAt = new Date(row.createdAt).toISOString();
   return payload;
 }
+// Diagnostics deliberately project only a boolean acknowledgement. Truncating raw
+// response text is not redaction: providers can echo secrets or customer data.
+function responseDiagnostics(response) {
+  const mediaType = response.headers.get('content-type')?.split(';')[0].trim().toLowerCase();
+  return {
+    status: response.status,
+    contentType: !mediaType ? 'missing' : ['application/json', 'text/plain', 'text/html', 'application/problem+json'].includes(mediaType) ? mediaType : 'other/redacted',
+    body: '[unreadable body; redacted]',
+  };
+}
+function summarizeBody(text) {
+  if (!text.trim()) return { summary: '[empty body]' };
+  let body;
+  try { body = JSON.parse(text); }
+  catch { return { summary: '[non-JSON body; redacted]' }; }
+  const object = body !== null && typeof body === 'object' && !Array.isArray(body);
+  const accepted = object && Object.hasOwn(body, 'accepted') ? body.accepted : undefined;
+  return { accepted, summary: typeof accepted === 'boolean'
+    ? JSON.stringify({ accepted }) : '[JSON body without boolean accepted; redacted]' };
+}
 export function createZohoFlowClient(env = name => process.env[name], fetcher = fetch) {
   return {
-    async sync(row) {
+    async sync(row, recordDiagnostic = () => {}) {
       const { webhookUrl } = getZohoFlowConfig(env);
       const signal = AbortSignal.timeout(5000);
+      let diagnostic;
       try {
         const response = await fetcher(webhookUrl, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(mapFlowPayload(row)), redirect: 'error', signal,
         });
-        if (response.status !== 200) {
+        diagnostic = responseDiagnostics(response);
+        const { accepted, summary } = summarizeBody(await response.text());
+        diagnostic.body = summary;
+        if (!response.ok) {
           const code = response.status >= 500 ? 'server_error' : response.status >= 400 ? 'client_error' : 'unexpected_status';
           throw new FlowError(code, response.status);
         }
-        // Required configured acknowledgement; see README. Never accept arbitrary 2xx.
-        let body;
-        try { body = await response.json(); }
-        catch { throw new FlowError(signal.aborted ? 'timeout' : 'acknowledgement'); }
-        if (body?.accepted !== true) throw new FlowError('acknowledgement');
+        if (accepted !== true) throw new FlowError('acknowledgement', response.status);
       } catch (error) {
         if (error instanceof FlowError) throw error;
         throw new FlowError(signal.aborted || error?.name === 'TimeoutError' || error?.name === 'AbortError' ? 'timeout' : 'network');
+      } finally {
+        // Diagnostic sink failures must never turn an acknowledged delivery into a retry.
+        if (diagnostic) { try { recordDiagnostic(diagnostic); } catch { /* best effort */ } }
       }
     },
   };
@@ -61,14 +84,19 @@ export function createZohoFlowClient(env = name => process.env[name], fetcher = 
 export async function syncFlowEnquiry(store, flow, id, logger = console, { retry = false } = {}) {
   const row = await store.claim(id, { retry });
   if (!row) return false;
+  let diagnostic;
   try {
-    await flow.sync(row);
-    await store.update(id, { zohoSyncStatus: 'synced', zohoSyncedAt: new Date().toISOString(), zohoSyncError: null });
+    await flow.sync(row, value => {
+      diagnostic = value;
+      try { logger.info?.('zoho_flow_response', { enquiry_id: String(id), ...value }); } catch { /* best effort */ }
+    });
+    await store.update(id, { zohoSyncStatus: 'synced', zohoSyncedAt: new Date().toISOString(), zohoSyncError: null, zohoFlowResponse: diagnostic ?? null });
     return true;
   } catch (error) {
     const reason = error instanceof FlowError ? error.message : messages.unexpected;
-    logger.error('zoho_flow_sync_failed', { enquiry_id: String(id), reason });
-    try { await store.update(id, { zohoSyncStatus: 'failed', zohoSyncError: reason }); }
+    const status = error instanceof FlowError && ['configuration', 'client_error'].includes(error.code) ? 'failed' : 'needs_reconciliation';
+    logger.error('zoho_flow_sync_failed', { enquiry_id: String(id), reason, status, ...(diagnostic ? { response: diagnostic } : {}) });
+    try { await store.update(id, { zohoSyncStatus: status, zohoSyncError: reason, zohoFlowResponse: diagnostic ?? null }); }
     catch { logger.error('zoho_flow_status_write_failed', { enquiry_id: String(id) }); }
     return false;
   }

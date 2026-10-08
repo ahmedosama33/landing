@@ -1,5 +1,5 @@
 // The public Swagger does not specify webhook envelopes or authenticity verification.
-// Acknowledgement-only shell requested for local preparation. "Valid" here means
+// Disabled shell until a verified, durable event processor exists. "Valid" means
 // a JSON object, NOT an authenticated BotSpace event. No persistence/CRM writes.
 // TODO: obtain verification mechanism and Incoming/Outgoing/Delivery examples;
 // verify raw bytes before mapping identifiers, deduplicating, or writing anything.
@@ -10,7 +10,7 @@ export function createBotspaceWebhook(logger = console) {
     try { body = JSON.parse(req.body.toString('utf8')); }
     catch { return res.status(400).json({ success: false, message: 'Invalid JSON.' }); }
     if (!body || typeof body !== 'object' || Array.isArray(body)) return res.status(400).json({ success: false, message: 'Expected a JSON object.' });
-    logger.info?.('botspace_webhook_acknowledged_unprocessed', { bytes: req.body.length });
-    return res.status(200).json({ success: true, processed: false });
+    logger.info?.('botspace_webhook_unavailable', { bytes: req.body.length });
+    return res.status(503).json({ success: false, processed: false, message: 'Webhook processing is not configured.' });
   };
 }

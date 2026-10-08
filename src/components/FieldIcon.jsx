@@ -1,6 +1,8 @@
 const paths = {
   person: <><circle cx="12" cy="8" r="3.5" /><path d="M5 21v-2a7 7 0 0 1 14 0v2" /></>,
   phone: <path d="m7 3 3 5-2 2a14 14 0 0 0 6 6l2-2 5 3-1 3c-.3.8-1.2 1.2-2 1C10 20 4 14 3 6c-.2-.8.2-1.7 1-2Z" />,
+  landline: <path d="m7 3 3 5-2 2a14 14 0 0 0 6 6l2-2 5 3-1 3c-.3.8-1.2 1.2-2 1C10 20 4 14 3 6c-.2-.8.2-1.7 1-2Z" />,
+  mobile: <><rect x="6" y="2.5" width="12" height="19" rx="2.5" /><path d="M10 5h4M11 18.5h2" /></>,
   email: <><rect x="3" y="5" width="18" height="14" rx="3" /><path d="m3 7 9 6 9-6" /></>,
   lipstick: <><path d="M8 14V6l6-3v11M8 8l6-3M7 14h10v7H7Z" /><path d="M7 17h10" /></>,
   serum: <><rect x="7" y="10" width="10" height="12" rx="2" /><path d="M9 10V6h6v4M10 6V3h4v3M10 16h4M12 14v4" /></>,

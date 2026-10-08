@@ -28,7 +28,7 @@ test('documented contact request uses query apiKey and normalized phone, no clin
 test('configuration is lazy and rejects missing secrets or unsafe base URLs', async () => {
   const client = createBotspaceClient(() => undefined, () => assert.fail('No network expected'));
   await assert.rejects(client.createContact(payload), /configuration is incomplete/);
-  for (const base of ['http://example.com', 'https://user:secret@example.com', 'https://example.com/path', 'https://example.com/?key=secret']) {
+  for (const base of ['https://example.com', 'https://public-api.bot.space:8443', 'http://example.com', 'https://user:secret@example.com', 'https://example.com/path', 'https://example.com/?key=secret']) {
     assert.throws(() => readBotspaceConfig(name => name === 'BOTSPACE_BASE_URL' ? base : env(name)), /invalid/);
   }
 });
@@ -59,11 +59,14 @@ function harness({ fail = false, knownContact } = {}) {
       return { ...row };
     },
     async findBotspaceContact(phone) { assert.equal(phone, payload.phone); return knownContact; },
+    async reserveBotspaceContact() { return { acquired: true }; },
+    async resolveBotspaceContact() {},
     async update(id, fields) { assert.equal(id, row._id); Object.assign(row, fields); },
   };
   const zoho = { async sync() { order.push('zoho'); return '12345'; } };
   const botspace = { async createContact() { order.push('botspace'); if (fail) throw new Error('private-key'); return 'contact-123'; } };
   botspace.ensureConversation = async () => ({ id: 'conversation-123' });
+  botspace.updateContactProperties = async () => ({ skipped: true });
   return { row, order, store, zoho, flow: zoho, botspace, logger };
 }
 
@@ -105,7 +108,7 @@ test('CRM failure does not prevent BotSpace preparation or saved-enquiry success
   h.zoho.sync = async () => { throw new Error('outage'); };
   const response = await (await api(t, h))('/api/enquiries', payload);
   assert.equal(response.status, 201);
-  assert.equal(h.row.zohoSyncStatus, 'failed');
+  assert.equal(h.row.zohoSyncStatus, 'needs_reconciliation');
   assert.equal(h.row.botspaceSyncStatus, 'synced');
 });
 
@@ -136,13 +139,13 @@ test('BotSpace claim/storage outages cannot undo enquiry capture', async t => {
   assert.deepEqual(h.order, ['save', 'zoho']);
 });
 
-test('webhook acknowledges unknown JSON without trusting guessed headers or writing data', async t => {
+test('disabled webhook rejects repeated unknown events without trusting guessed headers or writing data', async t => {
   // These are deliberately arbitrary bytes/objects, NOT claimed BotSpace fixtures.
   const request = await api(t, { store: {}, zoho: {}, logger });
   for (const body of [{}, { arbitrary: 'incoming' }, { arbitrary: 'outgoing' }, { arbitrary: 'delivery' }, { arbitrary: 'unknown' }]) {
     const response = await request('/api/webhooks/botspace', body, { 'X-Signature': 'invented', Authorization: 'Bearer invented' });
-    assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { success: true, processed: false });
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), { success: false, processed: false, message: 'Webhook processing is not configured.' });
   }
   assert.equal((await request('/api/webhooks/botspace', { data: 'x'.repeat(21000) })).status, 413);
   assert.equal((await request('/api/webhooks/botspace', null)).status, 400);
@@ -150,12 +153,13 @@ test('webhook acknowledges unknown JSON without trusting guessed headers or writ
   assert.equal((await request('/api/webhooks/botspace', {}, { 'Content-Type': 'text/plain' })).status, 415);
 });
 
-test('country-code splitting preserves shared normalized phone identity without default country', () => {
+test('country-code splitting preserves international identity and supports explicit Egyptian national input', () => {
   assert.deepEqual(botspacePhoneParts('00971 50 123 4567'), { countryCode: '971', phone: '501234567' });
   assert.deepEqual(botspacePhoneParts('+44 20 7946 0018'), { countryCode: '44', phone: '2079460018' });
   assert.deepEqual(botspacePhoneParts(payload.phone), { countryCode: '1', phone: '5555550123' });
   assert.deepEqual(botspacePhoneParts('+201270627474'), { countryCode: '20', phone: '1270627474' });
-  assert.throws(() => botspacePhoneParts('0501234567'));
+  assert.deepEqual(botspacePhoneParts('01012345678'), { countryCode: '20', phone: '1012345678' });
+  assert.throws(() => botspacePhoneParts('05012'));
 });
 
 test('conversation found is reused using documented countryCode and phone query', async () => {
@@ -230,7 +234,7 @@ test('both integrations fail after persistence and still return public-only 201 
   const response = await (await api(t, h))('/api/enquiries', payload);
   assert.equal(response.status, 201);
   assert.deepEqual(await response.json(), { success: true, enquiryId: h.row._id, message: 'Your enquiry has been received.' });
-  assert.equal(h.row.zohoSyncStatus, 'failed');
+  assert.equal(h.row.zohoSyncStatus, 'needs_reconciliation');
   assert.equal(h.row.botspaceSyncStatus, 'failed');
 });
 

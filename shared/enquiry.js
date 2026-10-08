@@ -1,3 +1,5 @@
+import { parsePhoneNumberFromString } from 'libphonenumber-js';
+
 export const SERVICES = ['Plastic Surgery', 'Dermatology', 'Laser', 'Skin Care', 'Cosmetics', 'Slimming', 'Other'];
 
 export class ValidationError extends Error {
@@ -17,8 +19,21 @@ function clean(value, field, max, required = false) {
 }
 
 export function normalizePhone(value) {
-  const phone = clean(value, 'phone', 40, true).replace(/[\s().-]/g, '').replace(/^00/, '+');
+  let phone = clean(value, 'phone', 40, true).replace(/[٠-٩]/g, digit => String(digit.charCodeAt(0) - 0x660))
+    .replace(/[۰-۹]/g, digit => String(digit.charCodeAt(0) - 0x6f0)).replace(/[\s().-]/g, '').replace(/^00/, '+');
+  // Explicit Egyptian national input support; other countries still require +/00.
+  if (/^0\d+$/.test(phone)) {
+    const egyptian = parsePhoneNumberFromString(phone, 'EG');
+    if (egyptian?.country === 'EG' && egyptian.isValid()) phone = egyptian.number;
+  } else if (/^20\d{9,10}$/.test(phone)) {
+    const egyptian = parsePhoneNumberFromString('+' + phone);
+    if (egyptian?.country === 'EG' && egyptian.isValid()) phone = egyptian.number;
+  }
   if (!/^\+[1-9]\d{7,14}$/.test(phone)) throw new ValidationError('Enter your phone number with its country code.');
+  const parsed = parsePhoneNumberFromString(phone);
+  if (!parsed || parsed.number !== phone || !parsed.isPossible()) {
+    throw new ValidationError('Enter a possible international phone number with its country code.');
+  }
   return phone;
 }
 

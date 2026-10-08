@@ -51,7 +51,7 @@ test('Flow classifies HTTP 4xx/5xx and rejects redirects, unexpected 2xx, and ba
   for (const status of [200, 201, 202, 204, 302, 400, 401, 403, 429, 500, 503]) {
     const client = createZohoFlowClient(env, async () => new Response(status === 204 ? null : 'private-token customer body', { status }));
     await assert.rejects(client.sync(row()), error => {
-      assert.match(error.message, status === 200 ? /acknowledgement/ : new RegExp(`HTTP ${status}`));
+      assert.match(error.message, status >= 200 && status < 300 ? /acknowledgement/ : new RegExp(`HTTP ${status}`));
       assert.doesNotMatch(error.message, /private-token|customer|zapikey|https:/);
       return true;
     });
@@ -95,7 +95,7 @@ function harness(fetcher = accepted) {
   };
   const flow = createZohoFlowClient(env, async (...args) => { sends++; return fetcher(...args); });
   return { saved, store, flow, logs, logger: { error(...args) { logs.push(args); } },
-    botspace: { async ensureConversation() { return { id: 'conversation-existing' }; } },
+    botspace: { async ensureConversation() { return { id: 'conversation-existing' }; }, async updateContactProperties() { return { skipped: true }; } },
     get sends() { return sends; } };
 }
 
@@ -116,10 +116,14 @@ test('concurrent deliveries, failed browser replay, and private retry preserve s
   const responses = await Promise.all([submit(), submit(), submit()]);
   for (const response of responses) assert.equal(response.status, 201);
   assert.equal(h.sends, 1);
-  assert.equal(h.saved.zohoSyncStatus, 'failed');
+  assert.equal(h.saved.zohoSyncStatus, 'needs_reconciliation');
   assert.equal(h.saved.botspaceSyncStatus, 'synced');
   assert.equal(await syncFlowEnquiry(h.store, h.flow, h.saved._id, h.logger), false);
-  assert.equal(await syncFlowEnquiry(h.store, h.flow, h.saved._id, h.logger, { retry: true }), true);
+  assert.equal(await syncFlowEnquiry(h.store, h.flow, h.saved._id, h.logger, { retry: true }), false);
+  assert.equal(h.sends, 1, 'uncertain delivery must not be retried');
+  // Simulate a private operator reconciling history/CRM and authorizing redelivery.
+  h.saved.zohoSyncStatus = 'pending';
+  assert.equal(await syncFlowEnquiry(h.store, h.flow, h.saved._id, h.logger), true);
   assert.deepEqual(payloads[0], payloads[1]);
   assert.equal(h.saved.zohoLeadId, 'legacy-id');
   assert.equal(h.saved.zohoSyncError, null);
@@ -136,7 +140,7 @@ test('a status-write failure is recoverable and neither logs nor stored errors l
     await update(id, fields);
   };
   assert.equal(await syncFlowEnquiry(h.store, h.flow, h.saved._id, h.logger), false);
-  assert.equal(h.saved.zohoSyncStatus, 'failed');
+  assert.equal(h.saved.zohoSyncStatus, 'needs_reconciliation');
   assert.doesNotMatch(JSON.stringify({ logs: h.logs, error: h.saved.zohoSyncError }), /private-token|zapikey|https:/);
 });
 
@@ -154,4 +158,56 @@ test('Mongo claim query allows failed/stale delivery only for explicit retry', a
   assert.deepEqual(queries[0].$or, [{ zohoSyncStatus: { $in: ['pending'] } }]);
   assert.deepEqual(queries[1].$or[0].zohoSyncStatus.$in, ['pending', 'failed']);
   assert.equal(queries[1].$or[1].zohoSyncStatus, 'syncing');
+});
+
+test('all body-bearing 2xx statuses accept JSON whitespace/order regardless of response media type', async () => {
+  for (const status of [200, 201, 202, 206, 299]) {
+    for (const body of [' \n { "accepted" : true } \t', '{"ignored":"private-token","accepted":true}', '{"accepted":true,"ignored":"private-token"}']) {
+      const diagnostics = [];
+      await createZohoFlowClient(env, async () => new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })).sync(row(), value => diagnostics.push(value));
+      assert.deepEqual(diagnostics, [{ status, contentType: 'text/plain', body: '{"accepted":true}' }]);
+    }
+  }
+});
+
+test('ambiguous responses persist safe diagnostics and cannot be retried', async () => {
+  for (const body of ['', 'not JSON private-token person@example.com', '{}', '{"accepted":"true"}', '{"accepted":false}', 'null', '[{"accepted":true}]']) {
+    const h = harness(() => new Response(body, { headers: { 'Content-Type': 'application/json; secret=private-token' } }));
+    assert.equal(await syncFlowEnquiry(h.store, h.flow, h.saved._id, h.logger), false);
+    assert.equal(h.saved.zohoSyncStatus, 'needs_reconciliation');
+    assert.equal(h.saved.zohoFlowResponse.status, 200);
+    assert.equal(h.saved.zohoFlowResponse.contentType, 'application/json');
+    assert.ok(h.saved.zohoFlowResponse.body.length < 160);
+    assert.equal(await syncFlowEnquiry(h.store, h.flow, h.saved._id, h.logger, { retry: true }), false);
+    assert.equal(h.sends, 1);
+    assert.doesNotMatch(JSON.stringify({ logs: h.logs, response: h.saved.zohoFlowResponse }), /private-token|person@example|zapikey/);
+  }
+});
+
+test('non-2xx never acknowledges, even with accepted true; safe diagnostics retain actual status', async () => {
+  for (const status of [302, 400, 429, 500, 503]) {
+    const h = harness(() => new Response('{"accepted":true,"email":"person@example.com"}', { status, headers: { 'Content-Type': 'secret/private-token' } }));
+    await syncFlowEnquiry(h.store, h.flow, h.saved._id, h.logger);
+    assert.equal(h.saved.zohoSyncStatus, status >= 400 && status < 500 ? 'failed' : 'needs_reconciliation');
+    assert.deepEqual(h.saved.zohoFlowResponse, { status, contentType: 'other/redacted', body: '{"accepted":true}' });
+    assert.doesNotMatch(JSON.stringify(h.logs), /private-token|person@example/);
+  }
+});
+
+test('response body timeout preserves received status; diagnostic logger failure does not undo receipt', async () => {
+  const h = harness(() => ({ ok: true, status: 202, headers: new Headers({ 'Content-Type': 'application/json' }),
+    async text() { throw new DOMException(webhook, 'TimeoutError'); } }));
+  await syncFlowEnquiry(h.store, h.flow, h.saved._id, h.logger);
+  assert.equal(h.saved.zohoSyncStatus, 'needs_reconciliation');
+  assert.equal(h.saved.zohoFlowResponse.status, 202);
+  assert.match(h.saved.zohoSyncError, /timed out/);
+  assert.doesNotMatch(JSON.stringify(h.logs), /private-token|zapikey/);
+  await createZohoFlowClient(env, accepted).sync(row(), () => { throw new Error('logger unavailable'); });
+});
+
+test('Mongoose supports reconciliation status and safe structured response without changing BotSpace state', async () => {
+  const enquiry = new Enquiry({ ...row(), payloadHash: 'test-hash', zohoSyncStatus: 'needs_reconciliation',
+    zohoFlowResponse: { status: 200, contentType: 'text/plain', body: '[empty body]' } });
+  await enquiry.validate();
+  assert.equal(enquiry.botspaceSyncStatus, 'pending');
 });

@@ -27,6 +27,7 @@ test('production Vercel handler preserves the persistence success boundary', asy
   t.after(() => configure(previous));
   const logs = [];
   t.mock.method(console, 'error', (...args) => logs.push(args));
+  t.mock.method(console, 'info', (...args) => logs.push(args));
   let scenario;
   let row;
   let calls;
@@ -39,6 +40,7 @@ test('production Vercel handler preserves the persistence success boundary', asy
     assert.ok(row, 'provider must never run before persistence');
     calls.push(url.pathname);
     if (url.hostname === 'flow.zoho.com') {
+      if (scenario === 'ambiguous-ack') return new Response('');
       if (scenario === 'flow-timeout') throw new DOMException('flow-private-token', 'TimeoutError');
       if (scenario === 'zoho-network') throw new Error('provider-private-data');
       if (scenario === 'invalid-client') return json({ private: 'provider-private-data' }, 401);
@@ -69,6 +71,8 @@ test('production Vercel handler preserves the persistence success boundary', asy
     });
   }
   t.mock.method(enquiryStore, 'findBotspaceContact', async () => undefined);
+  t.mock.method(enquiryStore, 'reserveBotspaceContact', async () => ({ acquired: true }));
+  t.mock.method(enquiryStore, 'resolveBotspaceContact', async () => {});
   t.mock.method(enquiryStore, 'update', async (id, fields) => {
     assert.equal(id, row._id);
     if (scenario === 'status-write-fails') throw new Error('database-private-data');
@@ -94,7 +98,7 @@ test('production Vercel handler preserves the persistence success boundary', asy
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { status: 'ok' });
   });
-  for (const name of ['both-succeed', 'zoho-fails', 'invalid-client', 'botspace-fails', 'both-fail', 'missing-providers', 'flow-timeout', 'zoho-network', 'botspace-network', 'claims-fail', 'status-write-fails']) {
+  for (const name of ['both-succeed', 'ambiguous-ack', 'zoho-fails', 'invalid-client', 'botspace-fails', 'both-fail', 'missing-providers', 'flow-timeout', 'zoho-network', 'botspace-network', 'claims-fail', 'status-write-fails']) {
     await t.test(`${name}: persisted enquiry still returns 201`, async () => {
       scenario = name; row = undefined; calls = []; configure(settings);
       if (name === 'missing-providers') {
@@ -109,9 +113,14 @@ test('production Vercel handler preserves the persistence success boundary', asy
         assert.equal(row.botspaceSyncStatus, 'synced');
         assert.equal(row.zohoLeadId, undefined);
       }
+      if (name === 'ambiguous-ack') {
+        assert.equal(row.zohoSyncStatus, 'needs_reconciliation');
+        assert.equal(row.zohoFlowResponse.body, '[empty body]');
+        assert.equal(row.botspaceSyncStatus, 'synced');
+      }
       if (name === 'flow-timeout') {
         assert.match(row.zohoSyncError, /timed out/);
-        assert.equal(row.zohoSyncStatus, 'failed');
+        assert.equal(row.zohoSyncStatus, ['missing-providers', 'invalid-client'].includes(name) ? 'failed' : 'needs_reconciliation');
         assert.equal(row.botspaceSyncStatus, 'synced');
       }
       if (name === 'botspace-fails') {
@@ -119,18 +128,18 @@ test('production Vercel handler preserves the persistence success boundary', asy
         assert.equal(row.botspaceSyncStatus, 'failed');
       }
       if (name === 'zoho-fails' || name === 'invalid-client') {
-        assert.equal(row.zohoSyncStatus, 'failed');
+        assert.equal(row.zohoSyncStatus, ['missing-providers', 'invalid-client'].includes(name) ? 'failed' : 'needs_reconciliation');
         assert.match(row.zohoSyncError, name === 'invalid-client' ? /HTTP 401/ : /HTTP 503/);
         assert.equal(row.botspaceSyncStatus, 'synced');
         assert.equal(row.botspaceConversationId, 'conversation-1');
       }
       if (name === 'missing-providers') {
         assert.equal(calls.length, 0);
-        assert.equal(row.zohoSyncStatus, 'failed');
+        assert.equal(row.zohoSyncStatus, ['missing-providers', 'invalid-client'].includes(name) ? 'failed' : 'needs_reconciliation');
         assert.equal(row.botspaceSyncStatus, 'failed');
       }
       if (name === 'both-fail') {
-        assert.equal(row.zohoSyncStatus, 'failed');
+        assert.equal(row.zohoSyncStatus, ['missing-providers', 'invalid-client'].includes(name) ? 'failed' : 'needs_reconciliation');
         assert.equal(row.botspaceSyncStatus, 'failed');
       }
       assert.doesNotMatch(JSON.stringify({ row, logs }), /provider-private-data|database-private-data|test-secret|test-refresh|test-key|flow-private-token|zapikey|https:\/\/flow/);

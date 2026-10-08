@@ -7,6 +7,7 @@ import { enquiryStore, ConflictError } from './services/enquiryStore.js';
 import { createZohoFlowClient, syncFlowEnquiry } from './services/zohoFlowService.js';
 import { createBotspaceClient, syncBotspaceEnquiry } from './services/botspaceService.js';
 import { createBotspaceWebhook } from './services/botspaceWebhook.js';
+import { sendEnquiryTemplate } from './services/botspaceAutoTemplate.js';
 import { getAllowedOrigin } from './config/env.js';
 
 const failureMessage = "We couldn't send your enquiry right now. Please try again.";
@@ -35,7 +36,7 @@ export function createApp({ store = enquiryStore, flow = createZohoFlowClient(),
     next();
   });
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
-  // Acknowledgement only: no event writes until verification/contracts are documented.
+  // Disabled with 503 until verification and durable event processing exist.
   app.post('/api/webhooks/botspace', express.raw({ type: 'application/json', limit: '20kb' }), createBotspaceWebhook(logger));
   app.all('/api/webhooks/botspace', (req, res) => res.set('Allow', 'POST, OPTIONS').status(405).json({ success: false, message: 'Use POST.' }));
   const limiter = rateLimit({
@@ -63,7 +64,12 @@ export function createApp({ store = enquiryStore, flow = createZohoFlowClient(),
         try { await syncFlowEnquiry(store, flow, saved._id, logger); }
         catch { logger.error('zoho_flow_sync_claim_failed'); }
       }
-      try { await syncBotspaceEnquiry(store, botspace, saved._id, logger); }
+      try {
+        const prepared = await syncBotspaceEnquiry(store, botspace, saved._id, logger);
+        // Only a freshly completed sync may trigger a message; public replays and
+        // historical synced enquiries never start a new template attempt.
+        if (prepared) await sendEnquiryTemplate(store, botspace, saved._id, logger);
+      }
       catch { logger.error('botspace_sync_claim_failed'); }
       return res.status(201).json({ success: true, enquiryId: String(saved._id), message: 'Your enquiry has been received.' });
     } catch (error) { next(error); }

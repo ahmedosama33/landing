@@ -8,7 +8,8 @@ export function readBotspaceConfig(env = name => process.env[name]) {
   let url;
   try { url = new URL(env('BOTSPACE_BASE_URL') || 'https://public-api.bot.space'); }
   catch { throw new BotspaceError('BotSpace URL configuration is invalid.'); }
-  if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
+  if (url.protocol !== 'https:' || url.hostname !== 'public-api.bot.space' || url.port
+    || url.username || url.password || url.search || url.hash || url.pathname !== '/') {
     throw new BotspaceError('BotSpace URL configuration is invalid.');
   }
   if (!/^[a-zA-Z0-9_-]{1,128}$/.test(channelId)) throw new BotspaceError('BotSpace channel configuration is invalid.');

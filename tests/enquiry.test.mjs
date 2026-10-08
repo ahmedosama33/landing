@@ -48,7 +48,7 @@ test('validation normalizes and whitelists input, strips URL query/hash', () => 
   assert.equal(row.landingPage, 'https://clinic.example/contact');
   assert.equal(row.zohoLeadId, undefined);
   assert.equal(normalizePhone('+971 (50) 123-4567'), row.phone);
-  for (const phone of ['0501234567', '+971abc501234567', '+123', '+000123456789']) assert.throws(() => normalizePhone(phone));
+  for (const phone of ['05012', '+971abc501234567', '+123', '+000123456789']) assert.throws(() => normalizePhone(phone));
   for (const bad of [{ consent: false }, { consent: 'true' }, { service: 'Invalid' }, { fullName: ' ' }, { email: 'bad' }, { message: 'x'.repeat(2001) }, { landingPage: 'javascript:alert(1)' }, { company_website: 'bot' }, { phone: { $gt: '' } }]) assert.throws(() => validateEnquiry({ ...payload, ...bad }));
 });
 
@@ -82,8 +82,9 @@ test('CRM failure returns 201, retains enquiry and sanitized status, allows retr
   const response = await request();
   assert.equal(response.status, 201);
   assert.equal((await response.json()).zohoSynced, undefined);
-  assert.equal(h.row.zohoSyncStatus, 'failed');
+  assert.equal(h.row.zohoSyncStatus, 'needs_reconciliation');
   assert.equal(h.row.zohoSyncError.includes('secret'), false);
+  h.row.zohoSyncStatus = 'pending'; // Explicit reconciliation before a legacy retry.
   assert.equal(await syncEnquiry(h.store, { async sync() { return '12345'; } }, h.row._id, logger), true);
   assert.equal(h.row.zohoSyncStatus, 'synced');
 });

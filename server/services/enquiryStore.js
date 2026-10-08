@@ -1,9 +1,35 @@
 import { createHash } from 'node:crypto';
 import Enquiry from '../models/Enquiry.js';
 import { connectDB } from '../config/db.js';
+import { createContactRegistry } from './botspaceContactRegistry.js';
+
+async function contactRegistry() {
+  const connection = await connectDB();
+  return createContactRegistry(connection.connection.db.collection('botspace_contact_links'));
+}
 
 export class ConflictError extends Error {}
 export const enquiryStore = {
+  async claimBotspaceTemplate(id, templateId) {
+    await connectDB();
+    // No stale-claim reset: the provider may have accepted a timed-out request.
+    return Enquiry.findOneAndUpdate({ _id: id, consent: true, botspaceSyncStatus: 'synced', botspaceTemplateStatus: 'pending' },
+      { $set: { botspaceTemplateStatus: 'sending', botspaceTemplateId: templateId, botspaceTemplateStartedAt: new Date() } },
+      { returnDocument: 'after' }).lean();
+  },
+  async reserveBotspaceContact(phone, enquiryId) {
+    await connectDB();
+    // Pre-registry failures can already represent a successful remote create.
+    // Preserve them for manual reconciliation instead of retrying under a new UUID.
+    const unresolved = await Enquiry.findOne({ phone, botspaceContactId: { $in: [null, ''] },
+      ...(enquiryId ? { _id: { $ne: enquiryId } } : {}), $or: [
+        { botspaceSyncStatus: 'failed' },
+        { botspaceSyncStatus: 'syncing', botspaceSyncStartedAt: { $lt: new Date(Date.now() - 120000) } },
+      ] }).select('_id').lean();
+    if (unresolved) return { acquired: false };
+    return (await contactRegistry()).reserve(phone);
+  },
+  async resolveBotspaceContact(phone, contactId) { return (await contactRegistry()).resolve(phone, contactId); },
   async updateBotspaceMessageStatus(id, messageId, status) {
     await connectDB();
     const result = await Enquiry.updateOne({ _id: id, botspaceLastMessageId: messageId },
@@ -19,6 +45,8 @@ export const enquiryStore = {
   },
   async findBotspaceContact(phone) {
     await connectDB();
+    const registered = await (await contactRegistry()).find(phone);
+    if (registered) return registered;
     const row = await Enquiry.findOne({ phone, botspaceContactId: { $type: 'string', $ne: '' } })
       .sort({ createdAt: -1 }).select('botspaceContactId').lean();
     return row?.botspaceContactId;

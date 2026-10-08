@@ -11,7 +11,7 @@ function identifier(value) {
 export function botspacePhoneParts(value) {
   const normalized = normalizePhone(value);
   const parsed = parsePhoneNumberFromString(normalized);
-  // Never choose a default country or silently change the stored identity.
+  // Shared normalization handles explicit Egyptian national input first.
   if (!parsed || parsed.number !== normalized) throw new BotspaceError('BotSpace phone cannot be split safely.');
   return { countryCode: parsed.countryCallingCode, phone: parsed.nationalNumber };
 }
@@ -23,8 +23,22 @@ function messageResult(data) {
   return { id: data.id, conversationId: data.conversationId, status: data.status };
 }
 
+export function mapBotspaceProperties(row, env = name => process.env[name]) {
+  const properties = Object.create(null);
+  for (const [field, variable] of Object.entries({ fullName: 'BOTSPACE_PROPERTY_FULL_NAME', email: 'BOTSPACE_PROPERTY_EMAIL',
+    service: 'BOTSPACE_PROPERTY_SERVICE', message: 'BOTSPACE_PROPERTY_ENQUIRY' })) {
+    const key = env(variable)?.trim();
+    if (!key) continue;
+    if (key.length > 128 || [...key].some(char => char.charCodeAt(0) < 32) || ['__proto__', 'prototype', 'constructor'].includes(key)
+      || Object.hasOwn(properties, key)) throw new BotspaceError('BotSpace custom property configuration is invalid.');
+    if (row[field]) properties[key] = row[field];
+  }
+  return properties;
+}
+
 export function createBotspaceClient(env = name => process.env[name], fetcher = fetch, logger = console) {
   async function request(path, { method = 'GET', body, query, operation = 'message request' } = {}) {
+    const failure = (message, status, code) => Object.assign(new BotspaceError(message), { status, code, operation });
     const config = getBotspaceConfig(env);
     const url = new URL(path.replace('{channelId}', encodeURIComponent(config.channelId)), config.baseUrl);
     url.searchParams.set('apiKey', config.apiKey);
@@ -36,10 +50,10 @@ export function createBotspaceClient(env = name => process.env[name], fetcher = 
         headers: { 'Content-Type': 'application/json' },
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
-    } catch { throw new BotspaceError(`BotSpace ${operation} failed or timed out; reconcile before retry.`); }
+    } catch { throw failure(`BotSpace ${operation} failed or timed out; reconcile before retry.`, undefined, 'transport_failure'); }
     let result;
     try { result = await response.json(); }
-    catch { throw new BotspaceError(`BotSpace ${operation} returned invalid JSON: HTTP ${response.status}.`); }
+    catch { throw failure(`BotSpace ${operation} returned invalid JSON: HTTP ${response.status}.`, response.status, 'invalid_json'); }
     // Narrow observed provider contract: verified live on 7 October 2026.
     const conversationAbsent = operation === 'conversation lookup' && response.status === 404
       && typeof result?.message === 'string' && /^Conversation not found$/i.test(result.message);
@@ -49,21 +63,29 @@ export function createBotspaceClient(env = name => process.env[name], fetcher = 
     });
     if (conversationAbsent) return null;
     if (!response.ok) {
-      const error = new BotspaceError(`BotSpace ${operation} failed: HTTP ${response.status}; reconcile before retry.`);
-      error.status = response.status;
-      throw error;
+      throw failure(`BotSpace ${operation} failed: HTTP ${response.status}; reconcile before retry.`, response.status, 'request_rejected');
     }
-    if (!result?.data || typeof result.data !== 'object' || Array.isArray(result.data)) throw new BotspaceError('BotSpace response data is invalid; reconcile before retry.');
+    if (!result?.data || typeof result.data !== 'object' || Array.isArray(result.data)) throw failure('BotSpace response data is invalid; reconcile before retry.', response.status, 'invalid_response');
     return result.data;
   }
   const client = {
     async createContact(row) {
       // Swagger: POST /v1/contact, apiKey query parameter, name + E.164 phone.
       // This endpoint is account-scoped, not channel-scoped.
+      const contactProperties = mapBotspaceProperties(row, env);
       const data = await request('/v1/contact', { operation: 'contact creation', method: 'POST', body: {
         name: row.fullName, phone: normalizePhone(row.phone), ...(row.email ? { email: row.email } : {}),
+        ...(Object.keys(contactProperties).length ? { contactProperties } : {}),
       } });
       return identifier(data.contactId);
+    },
+    async updateContactProperties(contactId, row) {
+      const contactProperties = mapBotspaceProperties(row, env);
+      if (!Object.keys(contactProperties).length) return { skipped: true, reason: 'properties_not_configured' };
+      const data = await request('/v1/contact/properties', { operation: 'contact properties update', method: 'PATCH',
+        body: { contactId: identifier(contactId), contactProperties } });
+      if (data.success !== true) throw new BotspaceError('BotSpace contact property update was not confirmed.');
+      return { updated: true };
     },
     async getConversationByPhone(phone) {
       const data = await request('/v1/{channelId}/conversation', { operation: 'conversation lookup', query: botspacePhoneParts(phone) });
@@ -93,8 +115,7 @@ export function createBotspaceClient(env = name => process.env[name], fetcher = 
         return found;
       }
     },
-    async sendTemplateMessage(row, variables = []) {
-      const templateId = env('BOTSPACE_TEMPLATE_ID');
+    async sendTemplateMessage(row, variables = [], templateId = env('BOTSPACE_TEMPLATE_ID')) {
       if (!templateId) return { skipped: true, reason: 'template_not_configured' };
       if (typeof templateId !== 'string' || templateId.length > 200 || !Array.isArray(variables)
         || variables.some(value => !['string', 'number'].includes(typeof value))) throw new BotspaceError('BotSpace template configuration is invalid.');
@@ -136,8 +157,16 @@ export async function syncBotspaceEnquiry(store, client, id, logger = console) {
   try {
     // Reuse a known mapping from earlier enquiries with the same normalized phone.
     contactId ||= await store.findBotspaceContact(row.phone);
+    let created = false;
     if (!contactId) {
-      try { contactId = await client.createContact(row); }
+      const reservation = await store.reserveBotspaceContact(row.phone, id);
+      if (!reservation.acquired) {
+        contactId = reservation.contactId;
+        if (!contactId) throw new BotspaceError('BotSpace contact creation already attempted for this phone; reconcile before retry.');
+      }
+    }
+    if (!contactId) {
+      try { contactId = await client.createContact(row); created = true; }
       catch (error) {
         if (error.status !== 409) throw error;
         contactId = await store.findBotspaceContact(row.phone);
@@ -148,19 +177,22 @@ export async function syncBotspaceEnquiry(store, client, id, logger = console) {
           throw new BotspaceError('BotSpace contact already exists; conversation reconciled, contact ID requires administrator mapping.');
         }
       }
+      await store.resolveBotspaceContact(row.phone, contactId);
     }
     // Persist partial progress before the next external operation.
     await store.update(id, { botspaceContactId: contactId });
+    if (!created) await client.updateContactProperties(contactId, row);
     if (process.env.NODE_ENV === 'development') logger.info?.('[botspace] contact ready', { enquiryId: String(id), contactId });
     conversationId = (await client.ensureConversation({ ...row, botspaceConversationId: conversationId })).id;
-    await store.update(id, { botspaceSyncStatus: 'synced', botspaceContactId: contactId, botspaceConversationId: conversationId, botspaceSyncError: null });
+    await store.update(id, { botspaceSyncStatus: 'synced', botspaceContactId: contactId, botspaceConversationId: conversationId, botspaceSyncError: null, botspaceSyncFailure: null });
     if (process.env.NODE_ENV === 'development') logger.info?.('[botspace] conversation ready', { enquiryId: String(id), conversationId });
     return true;
   } catch (error) {
     const reason = error instanceof BotspaceError ? error.message : 'BotSpace synchronization failed; administrator review required.';
     logger.error('botspace_sync_failed', { enquiry_id: String(id), reason });
     try {
-      await store.update(id, { botspaceSyncStatus: 'failed', ...(contactId ? { botspaceContactId: contactId } : {}), ...(conversationId ? { botspaceConversationId: conversationId } : {}), botspaceSyncError: reason });
+      await store.update(id, { botspaceSyncStatus: 'failed', ...(contactId ? { botspaceContactId: contactId } : {}), ...(conversationId ? { botspaceConversationId: conversationId } : {}), botspaceSyncError: reason,
+        botspaceSyncFailure: error instanceof BotspaceError && error.code ? { operation: error.operation, status: error.status, code: error.code } : null });
     } catch { logger.error('botspace_sync_status_write_failed', { enquiry_id: String(id) }); }
     return false;
   }

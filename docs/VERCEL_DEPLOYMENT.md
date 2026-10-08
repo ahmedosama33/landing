@@ -96,7 +96,7 @@ Final URL pattern:
 https://<deployed-domain>/api/webhooks/botspace
 ```
 
-**Current blocker:** this route is an acknowledgement-only shell. It accepts JSON objects and returns `200` with `processed: false`, logging only minimal metadata; it does not authenticate provider events or update MongoDB/Zoho. No exact Incoming/Outgoing/Delivery envelope or verification contract has been supplied. Setting `BOTSPACE_WEBHOOK_SECRET` does not enable verification. Do not mistake receipt for working webhook integration.
+**Current blocker:** this route returns `503` with `processed: false`, logging only minimal metadata; it does not authenticate provider events or update MongoDB/Zoho. No exact Incoming/Outgoing/Delivery envelope or verification contract has been supplied. Setting `BOTSPACE_WEBHOOK_SECRET` does not enable verification. Leave any subscription to this placeholder disabled until verified durable processing exists.
 
 After implementing and testing the real contracts, open BotSpace webhook settings, select **Royal Model**, and enter the final URL. If a temporary Cloudflare URL was configured separately, replace it; this project has not created or confirmed one. Enable **Incoming events**, **Outgoing events**, and **Delivery events**. Send a designated test message, verify receipt, authentication, replay/order handling, MongoDB state and configured Zoho metadata. Until that implementation is complete, webhook production readiness is outstanding even if the website is deployed successfully.
 
