@@ -29,18 +29,6 @@ export default function Home() {
             <div><dt><span className="contact-icon"><FieldIcon name="phone" /></span>Contact details</dt><dd><a className="contact-number" href="tel:0559988250" dir="ltr"><span className="number-icon"><FieldIcon name="mobile" /></span>055 998 8250</a><a className="contact-number secondary-contact" href="tel:043389909" dir="ltr"><span className="number-icon"><FieldIcon name="landline" /></span>04 338 9909</a>{whatsappContact && <a className="whatsapp-contact" href={whatsappContact} target="_blank" rel="noopener noreferrer">Chat on WhatsApp <span aria-hidden="true">&#8599;</span></a>}</dd></div>
           </dl>
         </aside>
-        {/* <section className="clinic-location" aria-label="Royal Model Medical Center map">
-          <iframe
-            className="clinic-map"
-            src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3609.1162179745356!2d55.269828600000004!3d25.2330103!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3e5f42558b679127%3A0x15efd825aef16f9f!2sRoyal%20Model%20Medical%20Center!5e0!3m2!1sen!2seg!4v1791478195342!5m2!1sen!2seg"
-            width="600"
-            height="450"
-            allowFullScreen
-            loading="lazy"
-            referrerPolicy="strict-origin-when-cross-origin"
-            title="Royal Model Medical Center Location"
-          />
-        </section> */}
       </main>
       <CareMotion />
     </div>
