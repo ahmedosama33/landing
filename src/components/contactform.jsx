@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { SERVICES, validateEnquiry } from '../../shared/enquiry.js';
 import FieldIcon from './FieldIcon.jsx';
-import { getEnquiryAttribution } from '../lib/attribution.js';
+import { attributionForSubmission, getEnquiryAttribution } from '../lib/attribution.js';
 import { trackEnquirySubmitted } from '../lib/tracking.js';
 import tabbyLogo from '../assets/partners/tabby.svg';
 import tamaraLogo from '../assets/partners/tamara.png';
@@ -102,7 +102,11 @@ function ServiceDropdown({ services, value, onChange }) {
               className={`service-select-option${activeIndex === index ? ' is-active' : ''}${value === service ? ' is-selected' : ''}`}
               onMouseEnter={() => setActiveIndex(index)}
               onMouseDown={event => event.preventDefault()}
-              onClick={() => choose(index)}
+              onClick={event => {
+                // The surrounding label otherwise activates the trigger again.
+                event.preventDefault();
+                choose(index);
+              }}
             >
               {service}
             </li>
@@ -127,8 +131,9 @@ export default function ContactForm() {
     data.consent = data.consent === 'on';
     const formBody = JSON.stringify(data);
     // Keep retries identical even if an advertising cookie arrives after the first request.
-    const attribution = submission.current?.formBody === formBody
-      ? submission.current.attribution : getEnquiryAttribution();
+    const sameSubmission = submission.current?.formBody === formBody;
+    const attribution = attributionForSubmission(sameSubmission ? submission.current.attribution : null,
+      getEnquiryAttribution(), window.royalModelAdvertisingConsent === true);
     Object.assign(data, attribution);
     let payload;
     try { payload = { ...validateEnquiry(data), company_website: data.company_website }; }
@@ -138,7 +143,7 @@ export default function ContactForm() {
       return;
     }
     const body = JSON.stringify(payload);
-    if (submission.current?.body !== body) submission.current = { body, formBody, attribution, key: crypto.randomUUID() };
+    submission.current = { body, formBody, attribution, key: sameSubmission ? submission.current.key : crypto.randomUUID() };
     submitting.current = true;
     setStatus('submitting');
     setError('');

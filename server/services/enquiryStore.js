@@ -15,6 +15,14 @@ export function enquiryPayloadHash(row) {
   const hashable = Object.fromEntries(Object.entries(row).filter(([key, value]) => !AD_ATTRIBUTION_FIELDS.includes(key) || value));
   return createHash('sha256').update(JSON.stringify(hashable)).digest('hex');
 }
+export function isRedactedAttributionReplay(row, saved) {
+  // Withdrawal can remove optional IDs on a retry, but cannot change patient data.
+  if (AD_ATTRIBUTION_FIELDS.some(key => row[key])) return false;
+  const original = Object.fromEntries(Object.keys(row).map(key => [key,
+    AD_ATTRIBUTION_FIELDS.includes(key) ? '' : saved[key] ?? '',
+  ]));
+  return enquiryPayloadHash(original) === enquiryPayloadHash(row);
+}
 export function botspaceTemplateClaimFilter(id) {
   return { _id: id, consent: true, botspaceSyncStatus: 'synced', botspaceTemplateStatus: 'pending',
     botspaceContactId: { $type: 'string', $ne: '' }, botspaceConversationId: { $type: 'string', $ne: '' },
@@ -80,7 +88,7 @@ export const enquiryStore = {
       if (error.code !== 11000) throw error;
       saved = await Enquiry.findOne({ submissionKey }).lean();
     }
-    if (!saved || saved.payloadHash !== payloadHash) throw new ConflictError('Submission key already used.');
+    if (!saved || (saved.payloadHash !== payloadHash && !isRedactedAttributionReplay(row, saved))) throw new ConflictError('Submission key already used.');
     return saved;
   },
   async claim(id, { retry = true } = {}) {

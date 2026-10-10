@@ -2,8 +2,15 @@
 <html lang="en" class="scroll-smooth scroll-pt-7 motion-reduce:scroll-auto">
   <head>
     <meta charset="UTF-8" />
+    <meta name="facebook-domain-verification" content="hf8fg2qxknf4hmsbgj1ind2hsm1n0w" />
+    <!-- Consent defaults and saved choice must run synchronously before GTM. -->
+    <script src="/consent.js"></script>
     <!-- Google Tag Manager -->
-    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+    <script>(function(w,d,s,l,i){
+    // Fail closed unless consent fully initialized this exact dataLayer.
+    if(!w.royalModelConsent||!w.royalModelConsent.readyDataLayer||
+    w.royalModelConsent.readyDataLayer!==w[l]||w.royalModelGtmStarted)return;
+    w.royalModelGtmStarted=true;w[l].push({'gtm.start':
     new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
     j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
     'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
@@ -20,10 +27,7 @@
     <title>Royal Model</title>
   </head>
   <body class="min-w-80 bg-[#f7f6f1] font-['DM_Sans',sans-serif] text-[#24241f] antialiased selection:bg-[#e8d6ad] selection:text-[#24241f] [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-offset-5 [&_a]:focus-visible:outline-[#927130] [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-offset-5 [&_button]:focus-visible:outline-[#927130] motion-reduce:[&_*]:transition-none motion-reduce:[&_*]:animate-none">
-    <!-- Google Tag Manager (noscript) -->
-    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-5K6HVKD2"
-    height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
-    <!-- End Google Tag Manager (noscript) -->
+    <!-- No GTM noscript fallback: tracking requires initialized JavaScript consent. -->
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

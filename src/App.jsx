@@ -2,6 +2,7 @@
 import { BrowserRouter } from "react-router-dom";
 
 import AppRoutes from "./routes/AppRoutes.jsx";
+import CookieConsentBanner from './components/CookieConsentBanner.jsx';
 // import IntroLoader from "./components/layout/IntroLoader.jsx";
 // import SeoManager from "./seo/SeoManager.jsx";
 
@@ -24,6 +25,7 @@ function App() {
         <main>
           <AppRoutes />
         </main>
+        <CookieConsentBanner />
 
       </div>
     </BrowserRouter>

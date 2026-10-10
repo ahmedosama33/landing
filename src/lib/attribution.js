@@ -57,7 +57,9 @@ export function createAttribution(browser, now = Date.now) {
     prune();
     const url = new URL(browser.location.href);
     for (const [key, query] of Object.entries(utmFields)) put(key, url.searchParams.get(query));
-    for (const key of ['gclid', 'gbraid', 'wbraid', 'fbclid']) put(key, url.searchParams.get(key));
+    if (consent) {
+      for (const key of ['gclid', 'gbraid', 'wbraid', 'fbclid']) put(key, url.searchParams.get(key));
+    }
     put('landingPage', pageUrl(url.href));
     put('referrer', pageUrl(browser.document.referrer));
     cookies();
@@ -66,13 +68,14 @@ export function createAttribution(browser, now = Date.now) {
   function setConsent(granted) {
     consent = granted === true;
     browser.royalModelAdvertisingConsent = consent;
-    if (consent) { restore(); cookies(); persist(); }
+    if (consent) { restore(); capture(); }
     else {
       for (const key of AD_ATTRIBUTION_FIELDS) delete entries[key];
       try { browser.localStorage.removeItem(ATTRIBUTION_STORAGE_KEY); } catch { /* blocked storage */ }
     }
   }
   if (consent) restore();
+  else { try { browser.localStorage.removeItem(ATTRIBUTION_STORAGE_KEY); } catch { /* blocked storage */ } }
   capture();
   return {
     setConsent,
@@ -89,10 +92,18 @@ let attribution;
 export function initializeAttribution(browser = window) {
   if (attribution) return;
   attribution = createAttribution(browser);
-  // The site's CMP must supply a boolean; contact-form consent is unrelated.
-  browser.addEventListener('royalmodel:advertising-consent', event => attribution.setConsent(event.detail === true));
+  // Contact-form consent is unrelated. Ignore malformed external events.
+  browser.addEventListener('royalmodel:advertising-consent', event => {
+    if (typeof event.detail === 'boolean') attribution.setConsent(event.detail);
+  });
 }
 export function getEnquiryAttribution() {
   initializeAttribution();
   return attribution.getPayload();
+}
+
+export function attributionForSubmission(previous, current, allowed) {
+  const result = { ...(previous || current) };
+  if (!allowed) for (const key of AD_ATTRIBUTION_FIELDS) result[key] = '';
+  return result;
 }

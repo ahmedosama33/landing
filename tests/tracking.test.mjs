@@ -97,11 +97,12 @@ test('empty attribution additions preserve old submission hashes; real changes s
   assert.notEqual(enquiryPayloadHash(old), enquiryPayloadHash({ ...old, gclid: 'real-click' }));
 });
 
-test('one GTM loader and fallback, no direct vendor installation, conversion only after success branch', () => {
+test('one GTM loader without a noscript bypass, no direct vendor installation, conversion only after success branch', () => {
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.equal((html.match(/googletagmanager.com\/gtm.js/g) || []).length, 1);
-  assert.equal((html.match(/googletagmanager.com\/ns.html/g) || []).length, 1);
-  assert.doesNotMatch(html, /gtag\/js|fbevents.js|facebook-domain-verification/);
+  assert.equal((html.match(/googletagmanager.com\/ns.html/g) || []).length, 0);
+  assert.doesNotMatch(html, /gtag\/js|fbevents.js/);
+  assert.equal((html.match(/name="facebook-domain-verification" content="hf8fg2qxknf4hmsbgj1ind2hsm1n0w"/g) || []).length, 1);
   const form = readFileSync(new URL('../src/components/contactform.jsx', import.meta.url), 'utf8');
   assert.ok(form.indexOf('trackEnquirySubmitted(result, response.ok)') > form.indexOf("setStatus('success')"));
   const home = readFileSync(new URL('../src/pages/Home.jsx', import.meta.url), 'utf8');

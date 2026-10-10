@@ -1,5 +1,7 @@
 # Marketiq website tracking handoff — 10 October 2026
 
+**Historical report:** the [11 October consent and Meta verification update](MARKETIQ_COOKIE_CONSENT_REPORT.md) supersedes the missing-banner/token items and consent/retry behavior below. GTM vendor controls and live CRM verification remain outstanding.
+
 Implemented locally; nothing deployed and no GTM workspace or marketing configuration changed. GA4, Google Ads and Meta remain managed exclusively by GTM.
 
 ## Changed files

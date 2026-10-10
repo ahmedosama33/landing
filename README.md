@@ -1,5 +1,7 @@
 # Royal Model Modern Clinic
 
+Cookie consent and Meta verification (11 October 2026): see the [current implementation and GTM handoff](docs/MARKETIQ_COOKIE_CONSENT_REPORT.md). The banner now supplies the existing consent signal; Marketiq must still configure vendor tag enforcement before release.
+
 Website tracking (10 October 2026): see [Marketiq implementation report](docs/MARKETIQ_TRACKING_REPORT.md) for payloads, consent integration, validation results, and outstanding Flow/GTM configuration.
 
 BotSpace update (8 October 2026): see [connection setup and safe contact test](docs/BOTSPACE_CONNECTION.md) for Egyptian number normalization, configured custom-property mapping, durable contact-create deduplication and the permission-gated diagnostic. Existing Zoho Flow delivery is preserved.
