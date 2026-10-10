@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { AD_ATTRIBUTION_FIELDS } from '../../shared/attribution.js';
 import Enquiry from '../models/Enquiry.js';
 import { connectDB } from '../config/db.js';
 import { createContactRegistry } from './botspaceContactRegistry.js';
@@ -9,6 +10,11 @@ async function contactRegistry() {
 }
 
 export class ConflictError extends Error {}
+export function enquiryPayloadHash(row) {
+  // Empty optional additions must not invalidate pre-update idempotency keys.
+  const hashable = Object.fromEntries(Object.entries(row).filter(([key, value]) => !AD_ATTRIBUTION_FIELDS.includes(key) || value));
+  return createHash('sha256').update(JSON.stringify(hashable)).digest('hex');
+}
 export function botspaceTemplateClaimFilter(id) {
   return { _id: id, consent: true, botspaceSyncStatus: 'synced', botspaceTemplateStatus: 'pending',
     botspaceContactId: { $type: 'string', $ne: '' }, botspaceConversationId: { $type: 'string', $ne: '' },
@@ -64,7 +70,7 @@ export const enquiryStore = {
   },
   async save(row, submissionKey) {
     await connectDB();
-    const payloadHash = createHash('sha256').update(JSON.stringify(row)).digest('hex');
+    const payloadHash = enquiryPayloadHash(row);
     let saved;
     try {
       saved = await Enquiry.findOneAndUpdate({ submissionKey }, {

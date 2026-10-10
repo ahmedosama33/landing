@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { SERVICES, validateEnquiry } from '../../shared/enquiry.js';
 import FieldIcon from './FieldIcon.jsx';
+import { getEnquiryAttribution } from '../lib/attribution.js';
+import { trackEnquirySubmitted } from '../lib/tracking.js';
 import tabbyLogo from '../assets/partners/tabby.svg';
 import tamaraLogo from '../assets/partners/tamara.png';
 import toothpickLogo from '../assets/partners/toothpick.webp';
@@ -123,10 +125,11 @@ export default function ContactForm() {
     if (submitting.current) return;
     const data = Object.fromEntries(new FormData(event.currentTarget));
     data.consent = data.consent === 'on';
-    const page = new URL(window.location.href);
-    for (const [field, query] of Object.entries({ utmSource: 'utm_source', utmMedium: 'utm_medium', utmCampaign: 'utm_campaign', utmContent: 'utm_content', utmTerm: 'utm_term' })) data[field] = page.searchParams.get(query) ?? '';
-    data.landingPage = page.origin + page.pathname;
-    data.referrer = document.referrer;
+    const formBody = JSON.stringify(data);
+    // Keep retries identical even if an advertising cookie arrives after the first request.
+    const attribution = submission.current?.formBody === formBody
+      ? submission.current.attribution : getEnquiryAttribution();
+    Object.assign(data, attribution);
     let payload;
     try { payload = { ...validateEnquiry(data), company_website: data.company_website }; }
     catch (failure) {
@@ -135,7 +138,7 @@ export default function ContactForm() {
       return;
     }
     const body = JSON.stringify(payload);
-    if (submission.current?.body !== body) submission.current = { body, key: crypto.randomUUID() };
+    if (submission.current?.body !== body) submission.current = { body, formBody, attribution, key: crypto.randomUUID() };
     submitting.current = true;
     setStatus('submitting');
     setError('');
@@ -151,6 +154,7 @@ export default function ContactForm() {
         throw new Error(result.message || 'We could not submit your enquiry. Please try again.');
       }
       setStatus('success');
+      trackEnquirySubmitted(result, response.ok);
     } catch (failure) {
       setError(failure instanceof TypeError || failure instanceof SyntaxError
         ? 'We could not confirm your enquiry. Check your connection and try again.'

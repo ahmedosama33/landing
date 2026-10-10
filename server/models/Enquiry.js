@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { SERVICES } from '../../shared/enquiry.js';
+import { AD_ATTRIBUTION_FIELDS, ATTRIBUTION_ID_MAX_LENGTH, validAttributionId } from '../../shared/attribution.js';
 
 const text = maxLength => ({ type: String, trim: true, maxlength: maxLength });
 const schema = new mongoose.Schema({
@@ -13,6 +14,9 @@ const schema = new mongoose.Schema({
   consent: { type: Boolean, required: true, validate: value => value === true },
   utmSource: text(255), utmMedium: text(255), utmCampaign: text(255),
   utmContent: text(255), utmTerm: text(255), landingPage: text(2000), referrer: text(2000),
+  ...Object.fromEntries(AD_ATTRIBUTION_FIELDS.map(key => [key, {
+    ...text(ATTRIBUTION_ID_MAX_LENGTH), validate: value => !value || validAttributionId(value),
+  }])),
   // New records track Flow receipt, not CRM completion. Legacy synced rows and
   // lead IDs keep their old meaning; no automatic replay or destructive migration.
   zohoSyncStatus: { type: String, enum: ['pending', 'syncing', 'synced', 'failed', 'needs_reconciliation'], default: 'pending' },

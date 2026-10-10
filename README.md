@@ -1,5 +1,7 @@
 # Royal Model Modern Clinic
 
+Website tracking (10 October 2026): see [Marketiq implementation report](docs/MARKETIQ_TRACKING_REPORT.md) for payloads, consent integration, validation results, and outstanding Flow/GTM configuration.
+
 BotSpace update (8 October 2026): see [connection setup and safe contact test](docs/BOTSPACE_CONNECTION.md) for Egyptian number normalization, configured custom-property mapping, durable contact-create deduplication and the permission-gated diagnostic. Existing Zoho Flow delivery is preserved.
 
 ## Current architecture
@@ -57,7 +59,7 @@ Zoho documents JSON triggers and configurable acknowledgement bodies/headers in 
 
 ### Exact webhook payload
 
-The body always contains these 16 keys. Optional validated text defaults to an empty string. `enquiryId`, `submissionKey`, and `createdAt` come from the durable record; `createdAt` is ISO 8601 UTC. Internal hashes, sync metadata, CRM IDs, unknown input fields, and credentials are excluded.
+The body always contains these 22 keys. Optional validated text defaults to an empty string. `enquiryId`, `submissionKey`, and `createdAt` come from the durable record; `createdAt` is ISO 8601 UTC. Internal hashes, sync metadata, CRM IDs, unknown input fields, and credentials are excluded.
 
 ```json
 {
@@ -76,6 +78,12 @@ The body always contains these 16 keys. Optional validated text defaults to an e
   "utmCampaign": "example",
   "utmContent": "",
   "utmTerm": "",
+  "gclid": "",
+  "gbraid": "",
+  "wbraid": "",
+  "fbclid": "",
+  "fbp": "",
+  "fbc": "",
   "createdAt": "2026-10-08T10:00:00.000Z"
 }
 ```

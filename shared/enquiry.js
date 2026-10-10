@@ -1,4 +1,5 @@
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
+import { AD_ATTRIBUTION_FIELDS, validAttributionId } from './attribution.js';
 
 export const SERVICES = ['Plastic Surgery', 'Dermatology', 'Laser', 'Skin Care', 'Cosmetics', 'Slimming', 'Other'];
 
@@ -64,6 +65,11 @@ export function validateEnquiry(payload) {
   if (row.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(row.email)) throw new ValidationError('Enter a valid email address.');
   if (!SERVICES.includes(row.service)) throw new ValidationError('Choose a valid service.');
   for (const key of ['utmSource', 'utmMedium', 'utmCampaign', 'utmContent', 'utmTerm']) row[key] = clean(payload[key], key, 255);
+  for (const key of AD_ATTRIBUTION_FIELDS) {
+    const value = payload[key];
+    if (value != null && value !== '' && !validAttributionId(value)) throw new ValidationError(`Invalid ${key}.`);
+    row[key] = value || '';
+  }
   return row;
 }
 

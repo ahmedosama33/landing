@@ -1,3 +1,5 @@
+import { AD_ATTRIBUTION_FIELDS } from '../../shared/attribution.js';
+
 // Flow acknowledgement confirms receipt only, never CRM completion.
 const messages = Object.freeze({
   configuration: 'Zoho Flow configuration missing or invalid: ZOHO_FLOW_WEBHOOK_URL.',
@@ -26,7 +28,7 @@ export function getZohoFlowConfig(env = name => process.env[name]) {
 export function mapFlowPayload(row) {
   const payload = { enquiryId: String(row._id), submissionKey: row.submissionKey };
   for (const key of ['fullName', 'phone', 'email', 'service', 'message', 'consent', 'landingPage',
-    'referrer', 'utmSource', 'utmMedium', 'utmCampaign', 'utmContent', 'utmTerm']) {
+    'referrer', 'utmSource', 'utmMedium', 'utmCampaign', 'utmContent', 'utmTerm', ...AD_ATTRIBUTION_FIELDS]) {
     payload[key] = row[key] ?? (key === 'consent' ? false : '');
   }
   payload.createdAt = new Date(row.createdAt).toISOString();

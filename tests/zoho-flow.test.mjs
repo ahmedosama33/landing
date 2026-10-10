@@ -19,7 +19,8 @@ test('Flow sends only the exact allowlisted JSON payload with bounded POST and n
   const saved = { ...row(), payloadHash: 'private-hash', zohoLeadId: '123', secret: 'private-token' };
   const expected = { enquiryId: saved._id, submissionKey: key, fullName: 'Flow Test', phone: '+12025550123',
     email: '', service: 'Other', message: '', consent: true, landingPage: '', referrer: '',
-    utmSource: '', utmMedium: '', utmCampaign: '', utmContent: '', utmTerm: '', createdAt: '2026-10-08T10:00:00.000Z' };
+    utmSource: '', utmMedium: '', utmCampaign: '', utmContent: '', utmTerm: '',
+    gclid: '', gbraid: '', wbraid: '', fbclid: '', fbp: '', fbc: '', createdAt: '2026-10-08T10:00:00.000Z' };
   assert.deepEqual(mapFlowPayload(saved), expected);
   const client = createZohoFlowClient(env, async (url, init) => {
     assert.equal(url, webhook);
