@@ -65,13 +65,41 @@ test('no consent, unprepared contact, historical/ambiguous template states canno
   for (const change of [{ consent: false }, { botspaceSyncStatus: 'failed' }, { botspaceTemplateStatus: undefined },
     { botspaceTemplateStatus: 'sending' }, { botspaceTemplateStatus: 'needs_reconciliation' },
     { botspaceContactId: undefined }, { botspaceConversationId: '' }, { botspaceLastMessageId: 'already-sent' },
-    ...['sent', 'delivered', 'read', 'accepted', 'failed'].flatMap(status => [
+    ...['sent', 'delivered', 'read', 'success', 'accepted', 'failed'].flatMap(status => [
       { botspaceTemplateStatus: status }, { botspaceLastMessageStatus: status }, { botspaceLastMessageStatus: status.toUpperCase() },
     ])]) {
     const h = harness(); Object.assign(h.row, change);
     assert.equal(await sendEnquiryTemplate(h.store, h.client, h.row._id, logger, env()), false);
     assert.equal(h.sends(), 0);
   }
+});
+
+test('missing production variable mapping stays pending; explicit mapping permits one send on recovery', async () => {
+  const h = harness(); const logs = [];
+  const production = {
+    NODE_ENV: 'production', VERCEL_ENV: 'production',
+    BOTSPACE_AUTO_SEND: 'true', BOTSPACE_TEMPLATE_ID: 'approved-hi',
+    BOTSPACE_API_KEY: 'fake-key', BOTSPACE_CHANNEL_ID: 'fake-channel',
+    BOTSPACE_BASE_URL: 'https://public-api.bot.space',
+  };
+  const readEnv = key => production[key];
+  const diagnostic = { error(code) { logs.push(code); } };
+  const send = () => sendEnquiryTemplate(h.store, h.client, h.row._id, diagnostic, readEnv);
+  assert.equal(await send(), false);
+  assert.equal(await send(), false);
+  assert.equal(h.sends(), 0);
+  assert.equal(h.row.botspaceTemplateStatus, 'pending');
+  assert.equal(h.row.whatsappStarted, false);
+  assert.equal(h.row.whatsappStatus, 'not_started');
+  assert.deepEqual(logs, Array(2).fill('botspace_template_configuration_invalid'));
+  // This fake template is explicitly known to have zero placeholders.
+  production.BOTSPACE_TEMPLATE_VARIABLE_FIELDS = '[]';
+  assert.equal(await send(), true);
+  assert.equal(await send(), false);
+  assert.equal(h.sends(), 1);
+  assert.equal(h.row.botspaceTemplateStatus, 'accepted');
+  assert.equal(h.row.botspaceLastMessageId, 'message');
+  assert.equal(h.row.whatsappStarted, true);
 });
 
 test('timeout and status-write failures do not allow message retries; returned ID is preserved when possible', async () => {

@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { SERVICES, validateEnquiry } from '../../shared/enquiry.js';
 import FieldIcon from './FieldIcon.jsx';
+import tabbyLogo from '../assets/partners/tabby.svg';
+import tamaraLogo from '../assets/partners/tamara.png';
+import toothpickLogo from '../assets/partners/toothpick.webp';
 
 function ServiceDropdown({ services, value, onChange }) {
   const [open, setOpen] = useState(false);
@@ -183,6 +186,14 @@ export default function ContactForm() {
           </fieldset>
         </form>
       )}
+      <div className="clinic-partners" aria-labelledby="clinic-partners-title">
+        <p id="clinic-partners-title">Available at our clinic</p>
+        <ul className="clinic-partner-logos" role="list">
+          <li><img src={tabbyLogo} alt="Tabby" width="75" height="32" /></li>
+          <li><img src={tamaraLogo} alt="Tamara" width="85" height="28" /></li>
+          <li><img src={toothpickLogo} alt="Toothpick" width="124" height="30" /></li>
+        </ul>
+      </div>
     </section>
   );
 }

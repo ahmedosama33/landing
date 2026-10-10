@@ -64,6 +64,11 @@
 .booking-submit:disabled .submit-arrow { transform: none; }
 .form-footnote { margin-top: -15px; max-width: 490px; color: var(--muted); font-size: 11px; line-height: 1.8; }
 .form-error { padding: 12px; border-inline-start: 2px solid #a44132; background: #fcf1ed; color: #8f3428; font-size: 12px; line-height: 1.65; }
+.clinic-partners { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--rule); }
+.clinic-partners > p { margin: 0 0 14px; color: var(--muted); font-size: 13px; text-align: center; }
+.clinic-partner-logos { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 16px 28px; margin: 0; padding: 0; list-style: none; }
+.clinic-partner-logos li { display: flex; align-items: center; justify-content: center; min-height: 40px; }
+.clinic-partner-logos img { display: block; max-width: 100%; object-fit: contain; }
 .clinic-intro { padding: 4px 0 0; }
 .clinic-intro h2 { margin: 0 0 28px; font-size: 20px; font-weight: 600; line-height: 1.5; }
 .contact-details { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; margin: 0; }
