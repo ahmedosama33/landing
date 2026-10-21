@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="facebook-domain-verification" content="hf8fg2qxknf4hmsbgj1ind2hsm1n0w" />
     <!-- Consent defaults and saved choice must run synchronously before GTM. -->
+    <!-- Region consent defaults: set VITE_CONSENT_REGION_DEFAULTS=true at build time only after clinic approval. -->
+    <script>window.royalModelConsentConfig = { regionDefaults: '%VITE_CONSENT_REGION_DEFAULTS%' === 'true' };</script>
     <script src="/consent.js"></script>
     <!-- Google Tag Manager -->
     <script>(function(w,d,s,l,i){

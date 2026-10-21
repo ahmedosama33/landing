@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { SERVICES } from '../../shared/enquiry.js';
+import { SERVICES, LEGACY_SERVICES } from '../../shared/enquiry.js';
 import { AD_ATTRIBUTION_FIELDS, ATTRIBUTION_ID_MAX_LENGTH, validAttributionId } from '../../shared/attribution.js';
 
 const text = maxLength => ({ type: String, trim: true, maxlength: maxLength });
@@ -9,7 +9,7 @@ const schema = new mongoose.Schema({
   fullName: { ...text(80), required: true, minlength: 2 },
   phone: { ...text(16), required: true, index: true },
   email: { ...text(254), lowercase: true },
-  service: { type: String, required: true, enum: SERVICES },
+  service: { type: String, required: true, enum: [...SERVICES, ...LEGACY_SERVICES] },
   message: text(2000),
   consent: { type: Boolean, required: true, validate: value => value === true },
   utmSource: text(255), utmMedium: text(255), utmCampaign: text(255),

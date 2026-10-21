@@ -32,7 +32,25 @@
   function clearAttribution() {
     try { browser.localStorage.removeItem('royalmodel.attribution.v1'); } catch (_) { /* best effort */ }
   }
+  // Pending clinic approval: off unless index.html sets royalModelConsentConfig.regionDefaults.
+  var regionDefaults = !!(browser.royalModelConsentConfig && browser.royalModelConsentConfig.regionDefaults === true);
+  var DENIED_REGIONS = [
+    'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT',
+    'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE', // EU
+    'IS', 'LI', 'NO', // EEA
+    'GB'
+  ];
   queue('consent', 'default', categories(false));
+  if (regionDefaults) {
+    // Region-specific defaults override the global denied default above; other regions stay denied.
+    var granted = categories(true);
+    granted.region = ['AE'];
+    queue('consent', 'default', granted);
+    var denied = categories(false);
+    denied.region = DENIED_REGIONS;
+    queue('consent', 'default', denied);
+    queue('set', 'url_passthrough', true);
+  }
   // Restrict denied-state Google Ads data; GTM must separately gate Custom HTML.
   queue('set', 'ads_data_redaction', true);
   var saved = readChoice();
@@ -42,7 +60,11 @@
   }
   browser.royalModelAdvertisingConsent = choice === true;
   if (choice === true) queue('consent', 'update', categories(true));
-  else clearAttribution();
+  else {
+    // A saved Decline must override a granted regional default.
+    if (regionDefaults && choice === false) queue('consent', 'update', categories(false));
+    clearAttribution();
+  }
 
   browser.addEventListener(eventName, function (event) {
     if (typeof event.detail !== 'boolean') return;

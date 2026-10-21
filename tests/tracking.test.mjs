@@ -104,9 +104,11 @@ test('one GTM loader without a noscript bypass, no direct vendor installation, c
   assert.doesNotMatch(html, /gtag\/js|fbevents.js/);
   assert.equal((html.match(/name="facebook-domain-verification" content="hf8fg2qxknf4hmsbgj1ind2hsm1n0w"/g) || []).length, 1);
   const form = readFileSync(new URL('../src/components/contactform.jsx', import.meta.url), 'utf8');
-  assert.ok(form.indexOf('trackEnquirySubmitted(result, response.ok)') > form.indexOf("setStatus('success')"));
+  assert.ok(form.indexOf('trackEnquirySubmitted(result, response.ok, campaign?.key)') > form.indexOf("setStatus('success')"));
   const home = readFileSync(new URL('../src/pages/Home.jsx', import.meta.url), 'utf8');
   assert.match(home, /https:\/\/wa.me\//);
   assert.match(home, /href="tel:0559988250"/);
   assert.match(home, /href="tel:043389909"/);
+  assert.match(home, /href="tel:\+971569379941"/);
+  assert.doesNotMatch(home, /tel:569379941/);
 });

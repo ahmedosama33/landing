@@ -1,7 +1,14 @@
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
 import { AD_ATTRIBUTION_FIELDS, validAttributionId } from './attribution.js';
 
-export const SERVICES = ['Plastic Surgery', 'Dermatology', 'Laser', 'Skin Care', 'Cosmetics', 'Slimming', 'Other'];
+export const SERVICES = [
+  'Plastic Surgery', 'Liposuction & Body Contouring', 'Mommy Makeover & Tummy Tuck',
+  'Dermatology', 'Dermal Fillers', 'Anti-Wrinkle Treatment',
+  'Laser - Women', 'Laser - Men',
+  'Skin Care', 'Cosmetics', 'Slimming', 'Other',
+];
+// Options retired from the form. Stored enquiries may still carry them, so the DB model keeps accepting them.
+export const LEGACY_SERVICES = ['Laser'];
 
 export class ValidationError extends Error {
   constructor(message, code = 'invalid_input') {

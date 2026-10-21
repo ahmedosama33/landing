@@ -73,3 +73,27 @@ test('replacing the initialized dataLayer blocks the GTM loader', () => {
   assert.equal(h.scripts.length, 0);
   assert.equal(h.browser.dataLayer.length, 0);
 });
+
+test('region defaults are off unless flagged; when on, AE granted, EU/EEA/UK denied, saved Decline overrides', () => {
+  const off = harness();
+  off.initialize();
+  assert.equal(off.browser.dataLayer.filter(e => e[0] === 'consent' && e[1] === 'default').length, 1);
+  assert.equal(off.browser.dataLayer.some(e => e[1] === 'url_passthrough'), false);
+
+  for (const saved of [null, { value: false }]) {
+    const on = harness(saved);
+    on.browser.royalModelConsentConfig = { regionDefaults: true };
+    on.initialize();
+    const q = on.browser.dataLayer;
+    const defaults = q.filter(e => e[0] === 'consent' && e[1] === 'default');
+    assert.equal(defaults.length, 3);
+    assert.deepEqual([...defaults[1][2].region], ['AE']);
+    assert.equal(defaults[1][2].analytics_storage, 'granted');
+    assert.equal(defaults[1][2].ad_personalization, 'denied');
+    for (const code of ['DE', 'FR', 'IS', 'NO', 'LI', 'GB']) assert.ok(defaults[2][2].region.includes(code));
+    assert.equal(defaults[2][2].region.length, 31);
+    assert.equal(defaults[2][2].ad_storage, 'denied');
+    assert.ok(q.some(e => e[0] === 'set' && e[1] === 'url_passthrough' && e[2] === true));
+    assert.equal(q.some(e => e[1] === 'update' && e[2].ad_storage === 'denied'), saved !== null);
+  }
+});

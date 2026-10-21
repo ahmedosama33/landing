@@ -117,10 +117,10 @@ function ServiceDropdown({ services, value, onChange }) {
   );
 }
 
-export default function ContactForm() {
+export default function ContactForm({ campaign = null }) {
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
-  const [service, setService] = useState('');
+  const [service, setService] = useState(campaign?.option ?? '');
   const submission = useRef(null);
   const submitting = useRef(false);
 
@@ -159,7 +159,7 @@ export default function ContactForm() {
         throw new Error(result.message || 'We could not submit your enquiry. Please try again.');
       }
       setStatus('success');
-      trackEnquirySubmitted(result, response.ok);
+      trackEnquirySubmitted(result, response.ok, campaign?.key);
     } catch (failure) {
       setError(failure instanceof TypeError || failure instanceof SyntaxError
         ? 'We could not confirm your enquiry. Check your connection and try again.'
@@ -171,6 +171,12 @@ export default function ContactForm() {
   return (
     <section id="enquiry" className="booking-form" aria-labelledby="enquiry-title">
       <h2 id="enquiry-title" className="visually-hidden">Contact Royal Model</h2>
+      {campaign && status !== 'success' && (
+        <div className="service-offer">
+          <p className="service-offer-headline">{campaign.headline}</p>
+          <p className="service-offer-subline">{campaign.subline}</p>
+        </div>
+      )}
       {status === 'success' ? (
         <div className="booking-success" role="status">
           <span className="success-mark" aria-hidden="true">&#10003;</span>
